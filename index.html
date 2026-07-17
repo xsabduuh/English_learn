@@ -1,573 +1,1555 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>تعلّم إنجليزي</title>
-  
-  <!-- الأيقونات الاحترافية (Material Symbols) -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <!-- التصميم -->
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>منصة تعلم الإنجليزية</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div id="app">
+        <div id="screen-root"></div>
+    </div>
 
-  <div id="app">
-    <!-- سيتم حقن الشاشات هنا بواسطة JavaScript -->
-    <div id="screen-root"></div>
-  </div>
+    <script src="data.js"></script>
+    <script>
+        (function() {
+            'use strict';
 
-  <!-- تحميل البيانات القديمة أولاً -->
-  <script src="data.js"></script>
+            // ============================================================
+            // 1. الثوابت والمفاتيح
+            // ============================================================
+            const STORAGE = {
+                USER_LEVEL: 'eng_user_level',
+                PLACEMENT_DONE: 'eng_placement_done',
+                REVIEW_ITEMS: 'eng_review_items',
+                MISTAKES: 'eng_mistakes',
+                DAILY_GOALS: 'eng_daily_goals',
+                STATISTICS: 'eng_statistics',
+                LAST_SESSION: 'eng_last_session',
+                ACHIEVEMENTS: 'eng_achievements',
+                WORD_MASTERY: 'eng_word_mastery'
+            };
 
-  <!-- المحرك الجديد (كل المنطق التفاعلي) -->
-  <script>
-    (function() {
-      'use strict';
-
-      // =============================================
-      // 1. إدارة الحالة والتخزين (State & Storage)
-      // =============================================
-      const STORAGE_KEY = 'eng_active_v1';
-
-      function getDefaultState() {
-        return {
-          xp: 0,
-          level: 'A1',
-          streak: 0,
-          lastDate: null,
-          dailyGoal: 0,
-          currentWordIndex: 0,
-          masteredWords: [],
-          weakWords: [],
-          wordAttempts: {}
-        };
-      }
-
-      function loadState() {
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            // دمج مع القيم الافتراضية لتجنب الأعطال
-            const defaults = getDefaultState();
-            for (let key in defaults) {
-              if (parsed[key] === undefined) parsed[key] = defaults[key];
+            // ============================================================
+            // 2. دوال التخزين المساعدة
+            // ============================================================
+            function storageGet(key, defaultValue) {
+                try {
+                    const raw = localStorage.getItem(key);
+                    if (raw) return JSON.parse(raw);
+                } catch (e) { console.warn('Storage read error:', key, e); }
+                return defaultValue;
             }
-            return parsed;
-          }
-        } catch (e) { console.warn('Failed to load state', e); }
-        return getDefaultState();
-      }
 
-      function saveState(state) {
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-        } catch (e) { console.warn('Failed to save state', e); }
-      }
+            function storageSet(key, value) {
+                try {
+                    localStorage.setItem(key, JSON.stringify(value));
+                } catch (e) { console.warn('Storage write error:', key, e); }
+            }
 
-      // =============================================
-      // 2. محرك اللعبة (Game Engine)
-      // =============================================
-      const Game = {
-        state: loadState(),
-        currentLevelWords: [],
-        currentChallengeIndex: 0,
-        currentChallenges: [],
-        isAnswering: false,
+            // ============================================================
+            // 3. البيانات الافتراضية
+            // ============================================================
+            function getDefaultReviewItems() {
+                const items = {};
+                const levels = window.APP_LEVELS || ['A1', 'A2', 'B1', 'B2'];
+                levels.forEach(level => {
+                    const data = window.APP_DATA[level];
+                    if (!data) return;
+                    // كلمات
+                    (data.words || []).forEach(w => {
+                        items[w.id] = {
+                            id: w.id,
+                            type: 'word',
+                            level: level,
+                            correctCount: 0,
+                            wrongCount: 0,
+                            lastReview: null,
+                            nextReview: null,
+                            easeFactor: 2.5,
+                            interval: 0
+                        };
+                    });
+                    // قواعد
+                    (data.grammar || []).forEach(g => {
+                        items[g.id] = {
+                            id: g.id,
+                            type: 'grammar',
+                            level: level,
+                            correctCount: 0,
+                            wrongCount: 0,
+                            lastReview: null,
+                            nextReview: null,
+                            easeFactor: 2.5,
+                            interval: 0
+                        };
+                    });
+                });
+                return items;
+            }
 
-        // تهيئة المستوى الحالي
-        initLevel: function(levelId) {
-          if (!window.APP_DATA || !window.APP_DATA[levelId]) {
-            console.error('Level not found:', levelId);
-            return false;
-          }
-          this.state.level = levelId;
-          const levelData = window.APP_DATA[levelId];
-          // نأخذ الكلمات فقط كمصدر للتحديات (نحولها إلى تحديات ديناميكية)
-          this.currentLevelWords = levelData.words || [];
-          if (this.currentLevelWords.length === 0) {
-            console.warn('No words in this level:', levelId);
-            return false;
-          }
-          // نبدأ من أول كلمة لم يتقنها المستخدم بعد
-          this.state.currentWordIndex = 0;
-          this.generateChallenges();
-          saveState(this.state);
-          return true;
-        },
+            function getDefaultDailyGoals() {
+                return {
+                    date: new Date().toDateString(),
+                    wordsLearned: 0,
+                    wordsReviewed: 0,
+                    grammarReviewed: 0,
+                    storiesRead: 0,
+                    exercisesDone: 0,
+                    targetWords: 10,
+                    targetReviews: 15,
+                    completed: false
+                };
+            }
 
-        // توليد تحديات من الكلمات (نحول القراءة إلى تفاعل)
-        generateChallenges: function() {
-          const words = this.currentLevelWords;
-          const challenges = [];
-          // نأخذ أول 5 كلمات فقط كدفعة (micro-challenge)
-          const start = this.state.currentWordIndex;
-          const end = Math.min(start + 5, words.length);
-          
-          for (let i = start; i < end; i++) {
-            const word = words[i];
-            if (!word) continue;
-            
-            // التحدي 1: ترجمة (انظر إنجليزي -> اختر عربي)
-            challenges.push({
-              type: 'translate',
-              word: word,
-              correct: word.translation,
-              options: this.generateOptions(word.translation, 'translation')
+            function getDefaultStatistics() {
+                return {
+                    totalWordsLearned: 0,
+                    totalGrammarLearned: 0,
+                    totalStoriesRead: 0,
+                    totalExercises: 0,
+                    correctAnswers: 0,
+                    wrongAnswers: 0,
+                    averageScore: 0,
+                    levelScores: { A1: 0, A2: 0, B1: 0, B2: 0 },
+                    weakWords: [],
+                    weakGrammar: []
+                };
+            }
+
+            function getDefaultAchievements() {
+                return {
+                    wordsMastered: 0,
+                    grammarMastered: 0,
+                    storiesCompleted: 0,
+                    daysStreak: 0,
+                    maxStreak: 0,
+                    xp: 0,
+                    level: 1,
+                    badges: []
+                };
+            }
+
+            // ============================================================
+            // 4. محرك المراجعة الذكية (Spaced Repetition)
+            // ============================================================
+            const ReviewEngine = {
+                getItems: function() {
+                    return storageGet(STORAGE.REVIEW_ITEMS, getDefaultReviewItems());
+                },
+
+                saveItems: function(items) {
+                    storageSet(STORAGE.REVIEW_ITEMS, items);
+                },
+
+                // جلب العناصر المستحقة للمراجعة
+                getDueItems: function(limit = 20) {
+                    const items = this.getItems();
+                    const now = Date.now();
+                    const due = [];
+                    for (let id in items) {
+                        const item = items[id];
+                        if (!item.nextReview || item.nextReview <= now) {
+                            due.push(item);
+                        }
+                    }
+                    // ترتيب حسب الأولوية (الأكثر خطأ أولاً)
+                    due.sort((a, b) => (b.wrongCount - a.wrongCount) || (a.nextReview || 0) - (b.nextReview || 0));
+                    return due.slice(0, limit);
+                },
+
+                // تحديث عنصر بعد الإجابة
+                updateItem: function(id, isCorrect) {
+                    const items = this.getItems();
+                    const item = items[id];
+                    if (!item) return;
+
+                    const now = Date.now();
+                    item.lastReview = now;
+
+                    if (isCorrect) {
+                        item.correctCount += 1;
+                        item.wrongCount = Math.max(0, item.wrongCount - 1);
+                        // خوارزمية SM-2 مبسطة
+                        if (item.correctCount >= 3) {
+                            item.interval = item.interval === 0 ? 1 : Math.min(item.interval * 2, 30);
+                        } else {
+                            item.interval = item.interval === 0 ? 1 : Math.min(item.interval * 1.5, 30);
+                        }
+                    } else {
+                        item.wrongCount += 1;
+                        item.correctCount = 0;
+                        item.interval = 1; // تعاد بعد يوم
+                        // تسجيل الخطأ في صفحة الأخطاء
+                        MistakesEngine.addMistake(id, item.type, item.level);
+                    }
+
+                    // حساب موعد المراجعة القادم (بالأيام)
+                    const days = Math.max(1, item.interval);
+                    item.nextReview = now + (days * 24 * 60 * 60 * 1000);
+
+                    this.saveItems(items);
+
+                    // تحديث الإحصائيات
+                    StatisticsEngine.updateStats(id, isCorrect);
+
+                    return item;
+                },
+
+                // الحصول على عدد المراجعات المستحقة اليوم
+                getDueCount: function() {
+                    return this.getDueItems(999).length;
+                }
+            };
+
+            // ============================================================
+            // 5. محرك الأخطاء (My Mistakes)
+            // ============================================================
+            const MistakesEngine = {
+                getMistakes: function() {
+                    return storageGet(STORAGE.MISTAKES, []);
+                },
+
+                saveMistakes: function(mistakes) {
+                    storageSet(STORAGE.MISTAKES, mistakes);
+                },
+
+                addMistake: function(itemId, type, level) {
+                    const mistakes = this.getMistakes();
+                    const existing = mistakes.find(m => m.itemId === itemId);
+                    if (existing) {
+                        existing.count += 1;
+                        existing.lastDate = new Date().toISOString();
+                    } else {
+                        // الحصول على التفاصيل من البيانات
+                        let details = {};
+                        const data = window.APP_DATA[level];
+                        if (data) {
+                            if (type === 'word') {
+                                const word = data.words.find(w => w.id === itemId);
+                                if (word) details = { word: word.word, translation: word.translation };
+                            } else if (type === 'grammar') {
+                                const grammar = data.grammar.find(g => g.id === itemId);
+                                if (grammar) details = { rule: grammar.rule };
+                            }
+                        }
+                        mistakes.push({
+                            itemId: itemId,
+                            type: type,
+                            level: level,
+                            count: 1,
+                            firstDate: new Date().toISOString(),
+                            lastDate: new Date().toISOString(),
+                            details: details
+                        });
+                    }
+                    this.saveMistakes(mistakes);
+                },
+
+                getTopMistakes: function(limit = 10) {
+                    const mistakes = this.getMistakes();
+                    mistakes.sort((a, b) => b.count - a.count);
+                    return mistakes.slice(0, limit);
+                },
+
+                clearMistake: function(itemId) {
+                    let mistakes = this.getMistakes();
+                    mistakes = mistakes.filter(m => m.itemId !== itemId);
+                    this.saveMistakes(mistakes);
+                }
+            };
+
+            // ============================================================
+            // 6. محرك الإحصائيات
+            // ============================================================
+            const StatisticsEngine = {
+                getStats: function() {
+                    return storageGet(STORAGE.STATISTICS, getDefaultStatistics());
+                },
+
+                saveStats: function(stats) {
+                    storageSet(STORAGE.STATISTICS, stats);
+                },
+
+                updateStats: function(itemId, isCorrect) {
+                    const stats = this.getStats();
+                    if (isCorrect) {
+                        stats.correctAnswers += 1;
+                    } else {
+                        stats.wrongAnswers += 1;
+                    }
+                    stats.totalExercises += 1;
+                    stats.averageScore = Math.round((stats.correctAnswers / stats.totalExercises) * 100);
+                    this.saveStats(stats);
+                },
+
+                updateLevelScore: function(level, score) {
+                    const stats = this.getStats();
+                    if (stats.levelScores[level] === undefined) stats.levelScores[level] = 0;
+                    stats.levelScores[level] = Math.max(stats.levelScores[level], score);
+                    this.saveStats(stats);
+                },
+
+                getWeakItems: function() {
+                    const mistakes = MistakesEngine.getTopMistakes(20);
+                    const stats = this.getStats();
+                    stats.weakWords = mistakes.filter(m => m.type === 'word').slice(0, 5);
+                    stats.weakGrammar = mistakes.filter(m => m.type === 'grammar').slice(0, 5);
+                    return stats;
+                }
+            };
+
+            // ============================================================
+            // 7. محرك الأهداف اليومية
+            // ============================================================
+            const DailyGoalsEngine = {
+                getGoals: function() {
+                    let goals = storageGet(STORAGE.DAILY_GOALS, null);
+                    const today = new Date().toDateString();
+                    if (!goals || goals.date !== today) {
+                        goals = getDefaultDailyGoals();
+                        goals.date = today;
+                        this.saveGoals(goals);
+                    }
+                    return goals;
+                },
+
+                saveGoals: function(goals) {
+                    storageSet(STORAGE.DAILY_GOALS, goals);
+                },
+
+                updateProgress: function(type) {
+                    const goals = this.getGoals();
+                    switch (type) {
+                        case 'word_learned':
+                            goals.wordsLearned += 1;
+                            break;
+                        case 'word_reviewed':
+                            goals.wordsReviewed += 1;
+                            break;
+                        case 'grammar_reviewed':
+                            goals.grammarReviewed += 1;
+                            break;
+                        case 'story_read':
+                            goals.storiesRead += 1;
+                            break;
+                        case 'exercise':
+                            goals.exercisesDone += 1;
+                            break;
+                    }
+                    // التحقق من اكتمال الأهداف
+                    if (goals.wordsLearned >= goals.targetWords &&
+                        goals.wordsReviewed + goals.grammarReviewed >= goals.targetReviews) {
+                        goals.completed = true;
+                    }
+                    this.saveGoals(goals);
+                    return goals;
+                },
+
+                getProgress: function() {
+                    const goals = this.getGoals();
+                    const total = goals.targetWords + goals.targetReviews;
+                    const done = goals.wordsLearned + goals.wordsReviewed + goals.grammarReviewed;
+                    return {
+                        ...goals,
+                        percent: total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0,
+                        remaining: Math.max(0, total - done)
+                    };
+                }
+            };
+
+            // ============================================================
+            // 8. محرك الإنجازات
+            // ============================================================
+            const AchievementsEngine = {
+                getAchievements: function() {
+                    return storageGet(STORAGE.ACHIEVEMENTS, getDefaultAchievements());
+                },
+
+                saveAchievements: function(ach) {
+                    storageSet(STORAGE.ACHIEVEMENTS, ach);
+                },
+
+                update: function() {
+                    const ach = this.getAchievements();
+                    const stats = StatisticsEngine.getStats();
+                    const reviewItems = ReviewEngine.getItems();
+
+                    // حساب الكلمات المتقنة (من مراجعة 3+ صحيحة)
+                    let mastered = 0;
+                    for (let id in reviewItems) {
+                        if (reviewItems[id].correctCount >= 3) mastered++;
+                    }
+                    ach.wordsMastered = mastered;
+
+                    // حساب القواعد المتقنة
+                    let grammarMastered = 0;
+                    for (let id in reviewItems) {
+                        if (reviewItems[id].type === 'grammar' && reviewItems[id].correctCount >= 3) grammarMastered++;
+                    }
+                    ach.grammarMastered = grammarMastered;
+
+                    // حساب عدد القصص المقروءة من localStorage
+                    const readStories = storageGet('eng_read_stories', []);
+                    ach.storiesCompleted = readStories.length;
+
+                    // تحديث المستوى (كل 100 XP = مستوى)
+                    ach.xp = storageGet('eng_xp', 0);
+                    ach.level = Math.floor(ach.xp / 100) + 1;
+
+                    // تحديث السلسلة اليومية
+                    const goals = DailyGoalsEngine.getGoals();
+                    if (goals.completed) {
+                        const streak = storageGet('eng_streak', 0);
+                        ach.daysStreak = streak;
+                        ach.maxStreak = Math.max(ach.maxStreak, streak);
+                    }
+
+                    this.saveAchievements(ach);
+                    return ach;
+                }
+            };
+
+            // ============================================================
+            // 9. محرك تحديد المستوى (Placement Test)
+            // ============================================================
+            const PlacementEngine = {
+                isDone: function() {
+                    return storageGet(STORAGE.PLACEMENT_DONE, false);
+                },
+
+                setDone: function(level) {
+                    storageSet(STORAGE.PLACEMENT_DONE, true);
+                    storageSet(STORAGE.USER_LEVEL, level);
+                },
+
+                generateTest: function() {
+                    // نأخذ 20 سؤالاً من جميع المستويات
+                    const levels = ['A1', 'A2', 'B1', 'B2'];
+                    const questions = [];
+                    levels.forEach(level => {
+                        const data = window.APP_DATA[level];
+                        if (data && data.quizzes) {
+                            const qs = data.quizzes.map(q => ({ ...q, level }));
+                            questions.push(...qs);
+                        }
+                    });
+                    // خلط واختيار 20
+                    const shuffled = questions.sort(() => Math.random() - 0.5);
+                    return shuffled.slice(0, 20);
+                },
+
+                evaluate: function(answers) {
+                    let score = 0;
+                    const details = answers.map((a, i) => {
+                        const correct = a.correct;
+                        if (a.selected === correct) score++;
+                        return { ...a, isCorrect: a.selected === correct };
+                    });
+                    const percentage = Math.round((score / answers.length) * 100);
+                    let level = 'A1';
+                    if (percentage >= 85) level = 'B2';
+                    else if (percentage >= 65) level = 'B1';
+                    else if (percentage >= 40) level = 'A2';
+                    return { score, total: answers.length, percentage, level, details };
+                }
+            };
+
+            // ============================================================
+            // 10. محرك التمارين (Exercise Engine) - أنواع متعددة
+            // ============================================================
+            const ExerciseEngine = {
+                // توليد تمارين من كلمات/قواعد
+                generateExercises: function(items, count = 10) {
+                    const exercises = [];
+                    const shuffled = items.sort(() => Math.random() - 0.5);
+                    const selected = shuffled.slice(0, count);
+
+                    selected.forEach((item, index) => {
+                        const type = this.getRandomExerciseType();
+                        const exercise = this.createExercise(item, type);
+                        if (exercise) exercises.push(exercise);
+                    });
+
+                    return exercises;
+                },
+
+                getRandomExerciseType: function() {
+                    const types = ['translate', 'fill', 'order', 'write', 'correct'];
+                    return types[Math.floor(Math.random() * types.length)];
+                },
+
+                createExercise: function(item, type) {
+                    const data = window.APP_DATA[item.level];
+                    if (!data) return null;
+
+                    if (item.type === 'word') {
+                        const word = data.words.find(w => w.id === item.id);
+                        if (!word) return null;
+                        return this.createWordExercise(word, type);
+                    } else if (item.type === 'grammar') {
+                        const grammar = data.grammar.find(g => g.id === item.id);
+                        if (!grammar) return null;
+                        return this.createGrammarExercise(grammar, type);
+                    }
+                    return null;
+                },
+
+                createWordExercise: function(word, type) {
+                    switch (type) {
+                        case 'translate':
+                            return {
+                                type: 'translate',
+                                question: `ما هي ترجمة "${word.word}"؟`,
+                                correct: word.translation,
+                                options: this.generateOptions(word.translation, 'translation', word.level)
+                            };
+                        case 'fill':
+                            if (word.example) {
+                                const parts = word.example.split(word.word);
+                                if (parts.length > 1) {
+                                    return {
+                                        type: 'fill',
+                                        question: `أكمل: ${parts[0]}______${parts.slice(1).join('')}`,
+                                        correct: word.word
+                                    };
+                                }
+                            }
+                            return null;
+                        case 'write':
+                            return {
+                                type: 'write',
+                                question: `اكتب "${word.translation}" بالإنجليزية:`,
+                                correct: word.word
+                            };
+                        case 'order':
+                            if (word.example) {
+                                const words = word.example.split(' ');
+                                const shuffled = [...words].sort(() => Math.random() - 0.5);
+                                return {
+                                    type: 'order',
+                                    question: 'رتب الكلمات لتكوين جملة:',
+                                    words: shuffled,
+                                    correct: word.example
+                                };
+                            }
+                            return null;
+                        case 'correct':
+                            if (word.example) {
+                                const wrong = word.example.replace(word.word, word.word + 'ss');
+                                return {
+                                    type: 'correct',
+                                    question: `صحح الخطأ: "${wrong}"`,
+                                    correct: word.example
+                                };
+                            }
+                            return null;
+                        default:
+                            return null;
+                    }
+                },
+
+                createGrammarExercise: function(grammar, type) {
+                    return {
+                        type: 'translate',
+                        question: `ما هي قاعدة "${grammar.rule}"؟ (اختر أفضل ترجمة)`,
+                        correct: grammar.rule,
+                        options: this.generateOptions(grammar.rule, 'rule', grammar.level)
+                    };
+                },
+
+                generateOptions: function(correct, field, level) {
+                    const data = window.APP_DATA[level];
+                    const pool = [];
+                    if (field === 'translation') {
+                        (data.words || []).forEach(w => { if (w.translation) pool.push(w.translation); });
+                    } else if (field === 'rule') {
+                        (data.grammar || []).forEach(g => { if (g.rule) pool.push(g.rule); });
+                    }
+                    const options = new Set();
+                    options.add(correct);
+                    for (let i = 0; i < pool.length && options.size < 4; i++) {
+                        if (pool[i] !== correct && !options.has(pool[i])) {
+                            options.add(pool[i]);
+                        }
+                    }
+                    while (options.size < 4) {
+                        options.add(`??? ${Math.random().toString(36).substring(2, 4)}`);
+                    }
+                    return Array.from(options).sort(() => Math.random() - 0.5);
+                },
+
+                checkAnswer: function(exercise, userAnswer) {
+                    if (exercise.type === 'order') {
+                        return userAnswer.trim() === exercise.correct.trim();
+                    }
+                    return userAnswer.trim().toLowerCase() === exercise.correct.trim().toLowerCase();
+                }
+            };
+
+            // ============================================================
+            // 11. قارئ القصص التفاعلي
+            // ============================================================
+            const StoryReader = {
+                getStories: function(level) {
+                    const data = window.APP_DATA[level];
+                    return data ? data.stories || [] : [];
+                },
+
+                getStory: function(level, storyId) {
+                    const stories = this.getStories(level);
+                    return stories.find(s => s.id === storyId) || null;
+                },
+
+                // تسجيل قراءة قصة
+                markAsRead: function(storyId) {
+                    const read = storageGet('eng_read_stories', []);
+                    if (!read.includes(storyId)) {
+                        read.push(storyId);
+                        storageSet('eng_read_stories', read);
+                        DailyGoalsEngine.updateProgress('story_read');
+                        AchievementsEngine.update();
+                    }
+                },
+
+                // تفسير كلمة (معنى + نطق)
+                getWordMeaning: function(word, level) {
+                    const data = window.APP_DATA[level];
+                    if (!data) return null;
+                    const found = data.words.find(w => w.word.toLowerCase() === word.toLowerCase());
+                    if (found) {
+                        return {
+                            word: found.word,
+                            translation: found.translation,
+                            example: found.example || ''
+                        };
+                    }
+                    return null;
+                }
+            };
+
+            // ============================================================
+            // 12. واجهة المستخدم (UI) - إعادة تصميم كاملة
+            // ============================================================
+            const UI = {
+                root: document.getElementById('screen-root'),
+                currentScreen: 'home',
+                currentLevel: null,
+                currentExerciseIndex: 0,
+                currentExercises: [],
+                currentStory: null,
+
+                // ===== الشاشة الرئيسية =====
+                renderHome: function() {
+                    const level = storageGet(STORAGE.USER_LEVEL, 'A1');
+                    const streak = storageGet('eng_streak', 0);
+                    const xp = storageGet('eng_xp', 0);
+                    const ach = AchievementsEngine.getAchievements();
+                    const goals = DailyGoalsEngine.getProgress();
+                    const dueCount = ReviewEngine.getDueCount();
+                    const lastSession = storageGet(STORAGE.LAST_SESSION, null);
+                    const mistakes = MistakesEngine.getMistakes();
+
+                    // اقتراح الدرس التالي
+                    const nextLesson = this.getNextLesson(level);
+
+                    let html = `
+                        <div class="home-container">
+                            <!-- شريط المستوى والسلسلة -->
+                            <div class="top-bar">
+                                <div class="level-badge">
+                                    <span class="material-symbols-outlined">account_circle</span>
+                                    <span>${level}</span>
+                                </div>
+                                <div class="streak-badge">
+                                    <span class="material-symbols-outlined">local_fire_department</span>
+                                    <span>${streak}</span>
+                                </div>
+                                <div class="xp-badge">
+                                    <span class="material-symbols-outlined">stars</span>
+                                    <span>${xp}</span>
+                                </div>
+                            </div>
+
+                            <!-- الترحيب -->
+                            <div class="welcome-section">
+                                <h1>مرحباً بك 👋</h1>
+                                <p>${dueCount > 0 ? `لديك ${dueCount} عناصر للمراجعة اليوم` : 'أنت في طريقك لإتقان الإنجليزية!'}</p>
+                            </div>
+
+                            <!-- بطاقة الاستمرار -->
+                            <div class="continue-card">
+                                <div class="continue-header">
+                                    <span class="material-symbols-outlined">play_arrow</span>
+                                    <span>متابعة التعلم</span>
+                                </div>
+                                ${lastSession ? `
+                                    <div class="continue-detail">
+                                        <span>آخر درس: ${lastSession.level} - ${lastSession.type || 'تمرين'}</span>
+                                        <span class="continue-time">${lastSession.date ? new Date(lastSession.date).toLocaleDateString() : ''}</span>
+                                    </div>
+                                ` : `
+                                    <div class="continue-detail">
+                                        <span>ابدأ رحلتك التعليمية</span>
+                                    </div>
+                                `}
+                                <button class="btn-continue" onclick="App.startLearning()">
+                                    <span class="material-symbols-outlined">arrow_forward</span>
+                                    استمر
+                                </button>
+                            </div>
+
+                            <!-- الأهداف اليومية -->
+                            <div class="daily-goal">
+                                <div class="daily-header">
+                                    <span class="material-symbols-outlined">today</span>
+                                    <span>أهداف اليوم</span>
+                                    <span class="daily-percent">${goals.percent}%</span>
+                                </div>
+                                <div class="daily-bar-bg">
+                                    <div class="daily-bar-fill" style="width: ${goals.percent}%;"></div>
+                                </div>
+                                <div class="daily-details">
+                                    <span>📖 ${goals.wordsLearned}/${goals.targetWords} كلمات</span>
+                                    <span>🔄 ${goals.wordsReviewed + goals.grammarReviewed}/${goals.targetReviews} مراجعات</span>
+                                </div>
+                                ${goals.completed ? '<div class="daily-complete">🎉 أحسنت! أكملت أهداف اليوم</div>' : ''}
+                            </div>
+
+                            <!-- المراجعة المستحقة -->
+                            ${dueCount > 0 ? `
+                                <div class="review-alert" onclick="App.startReview()">
+                                    <span class="material-symbols-outlined">sync</span>
+                                    <span>${dueCount} عنصر بحاجة للمراجعة</span>
+                                    <span class="material-symbols-outlined">chevron_left</span>
+                                </div>
+                            ` : ''}
+
+                            <!-- أخطائي -->
+                            ${mistakes.length > 0 ? `
+                                <div class="mistakes-alert" onclick="App.goToMistakes()">
+                                    <span class="material-symbols-outlined">error</span>
+                                    <span>لديك ${mistakes.length} خطأ</span>
+                                    <span class="material-symbols-outlined">chevron_left</span>
+                                </div>
+                            ` : ''}
+
+                            <!-- الاقتراح الذكي -->
+                            <div class="suggestion-card">
+                                <div class="suggestion-header">
+                                    <span class="material-symbols-outlined">lightbulb</span>
+                                    <span>اقتراح اليوم</span>
+                                </div>
+                                <p>${nextLesson}</p>
+                                <button class="btn-secondary" onclick="App.startLearning()">
+                                    <span class="material-symbols-outlined">arrow_forward</span>
+                                    ابدأ الدرس
+                                </button>
+                            </div>
+
+                            <!-- الروابط السريعة -->
+                            <div class="quick-links">
+                                <div class="quick-link" onclick="App.goToStatistics()">
+                                    <span class="material-symbols-outlined">analytics</span>
+                                    <span>الإحصائيات</span>
+                                </div>
+                                <div class="quick-link" onclick="App.goToAchievements()">
+                                    <span class="material-symbols-outlined">emoji_events</span>
+                                    <span>الإنجازات</span>
+                                </div>
+                                <div class="quick-link" onclick="App.goToMistakes()">
+                                    <span class="material-symbols-outlined">error</span>
+                                    <span>أخطائي</span>
+                                </div>
+                                <div class="quick-link" onclick="App.goToStories()">
+                                    <span class="material-symbols-outlined">book</span>
+                                    <span>القصص</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+
+                    this.root.innerHTML = html;
+                    this.currentScreen = 'home';
+                },
+
+                getNextLesson: function(level) {
+                    const data = window.APP_DATA[level];
+                    if (!data) return 'ابدأ بتعلم كلمات جديدة';
+
+                    // نبحث عن كلمات لم تتقن بعد
+                    const reviewItems = ReviewEngine.getItems();
+                    const mastered = new Set();
+                    for (let id in reviewItems) {
+                        if (reviewItems[id].correctCount >= 3) mastered.add(id);
+                    }
+
+                    const nextWord = data.words.find(w => !mastered.has(w.id));
+                    if (nextWord) {
+                        return `تعلم كلمة جديدة: "${nextWord.word}" (${nextWord.translation})`;
+                    }
+
+                    const nextGrammar = data.grammar.find(g => !mastered.has(g.id));
+                    if (nextGrammar) {
+                        return `تعلم قاعدة جديدة: ${nextGrammar.rule}`;
+                    }
+
+                    return 'راجع ما تعلمته أو انتقل لمستوى أعلى';
+                },
+
+                // ===== بدء التعلم (جلسة تفاعلية) =====
+                renderLearningSession: function() {
+                    const level = storageGet(STORAGE.USER_LEVEL, 'A1');
+                    const dueItems = ReviewEngine.getDueItems(5);
+
+                    // إذا كان هناك مراجعات مستحقة، نبدأ بها
+                    if (dueItems.length > 0) {
+                        this.currentExercises = ExerciseEngine.generateExercises(dueItems, Math.min(5, dueItems.length));
+                    } else {
+                        // خلاف ذلك، نتعلم كلمات جديدة
+                        const data = window.APP_DATA[level];
+                        if (!data) {
+                            this.renderHome();
+                            return;
+                        }
+                        const reviewItems = ReviewEngine.getItems();
+                        const mastered = new Set();
+                        for (let id in reviewItems) {
+                            if (reviewItems[id].correctCount >= 3) mastered.add(id);
+                        }
+                        const newWords = data.words.filter(w => !mastered.has(w.id));
+                        const selected = newWords.slice(0, 5);
+                        const items = selected.map(w => ({
+                            id: w.id,
+                            type: 'word',
+                            level: level
+                        }));
+                        this.currentExercises = ExerciseEngine.generateExercises(items, items.length);
+                    }
+
+                    if (this.currentExercises.length === 0) {
+                        this.renderHome();
+                        return;
+                    }
+
+                    this.currentExerciseIndex = 0;
+                    this.renderExercise();
+                },
+
+                renderExercise: function() {
+                    if (this.currentExerciseIndex >= this.currentExercises.length) {
+                        this.renderExerciseComplete();
+                        return;
+                    }
+
+                    const exercise = this.currentExercises[this.currentExerciseIndex];
+                    if (!exercise) {
+                        this.renderExerciseComplete();
+                        return;
+                    }
+
+                    let html = `
+                        <div class="exercise-container">
+                            <div class="exercise-progress">
+                                <span>تمرين ${this.currentExerciseIndex + 1} من ${this.currentExercises.length}</span>
+                                <div class="progress-dots">
+                                    ${this.currentExercises.map((_, i) => `
+                                        <span class="dot ${i < this.currentExerciseIndex ? 'done' : i === this.currentExerciseIndex ? 'active' : ''}"></span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="exercise-card">
+                    `;
+
+                    switch (exercise.type) {
+                        case 'translate':
+                            html += `
+                                <div class="exercise-icon"><span class="material-symbols-outlined">translate</span></div>
+                                <div class="exercise-question">${exercise.question}</div>
+                                <div class="exercise-options">
+                                    ${exercise.options.map(opt => `
+                                        <button class="option-btn" onclick="App.checkExercise('${opt.replace(/'/g, "\\'")}')">
+                                            ${opt}
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            `;
+                            break;
+                        case 'fill':
+                            html += `
+                                <div class="exercise-icon"><span class="material-symbols-outlined">text_fields</span></div>
+                                <div class="exercise-question">${exercise.question}</div>
+                                <input type="text" class="exercise-input" id="exerciseInput" placeholder="اكتب الإجابة..." />
+                                <button class="btn-primary" onclick="App.checkExercise(document.getElementById('exerciseInput').value)">
+                                    <span class="material-symbols-outlined">check</span> تأكيد
+                                </button>
+                            `;
+                            break;
+                        case 'write':
+                            html += `
+                                <div class="exercise-icon"><span class="material-symbols-outlined">edit</span></div>
+                                <div class="exercise-question">${exercise.question}</div>
+                                <textarea class="exercise-textarea" id="exerciseInput" rows="2" placeholder="اكتب هنا..."></textarea>
+                                <button class="btn-primary" onclick="App.checkExercise(document.getElementById('exerciseInput').value)">
+                                    <span class="material-symbols-outlined">check</span> تأكيد
+                                </button>
+                            `;
+                            break;
+                        case 'order':
+                            html += `
+                                <div class="exercise-icon"><span class="material-symbols-outlined">swap_horiz</span></div>
+                                <div class="exercise-question">${exercise.question}</div>
+                                <div class="order-words">
+                                    ${exercise.words.map(w => `
+                                        <span class="order-word" onclick="this.remove()">${w}</span>
+                                    `).join('')}
+                                </div>
+                                <input type="text" class="exercise-input" id="exerciseInput" placeholder="اكتب الجملة المرتبة..." />
+                                <button class="btn-primary" onclick="App.checkExercise(document.getElementById('exerciseInput').value)">
+                                    <span class="material-symbols-outlined">check</span> تأكيد
+                                </button>
+                            `;
+                            break;
+                        case 'correct':
+                            html += `
+                                <div class="exercise-icon"><span class="material-symbols-outlined">edit_note</span></div>
+                                <div class="exercise-question">${exercise.question}</div>
+                                <input type="text" class="exercise-input" id="exerciseInput" placeholder="صحح الجملة..." />
+                                <button class="btn-primary" onclick="App.checkExercise(document.getElementById('exerciseInput').value)">
+                                    <span class="material-symbols-outlined">check</span> تأكيد
+                                </button>
+                            `;
+                            break;
+                        default:
+                            html += `<p>نوع تمرين غير معروف</p>`;
+                    }
+
+                    html += `
+                            </div>
+                            <div class="exercise-hint">
+                                <span class="material-symbols-outlined">lightbulb</span>
+                                <span>فكر جيداً قبل الإجابة</span>
+                            </div>
+                        </div>
+                    `;
+
+                    this.root.innerHTML = html;
+                    this.currentScreen = 'exercise';
+                },
+
+                renderExerciseComplete: function() {
+                    const goals = DailyGoalsEngine.getProgress();
+                    const xp = storageGet('eng_xp', 0);
+
+                    let html = `
+                        <div class="complete-container">
+                            <div class="complete-icon">
+                                <span class="material-symbols-outlined" style="font-size:4rem;color:#F5B041;">emoji_events</span>
+                            </div>
+                            <h2>أحسنت! 🎉</h2>
+                            <p>أنهيت هذه الجلسة بنجاح</p>
+                            <div class="complete-stats">
+                                <div><span>نقاط XP</span> <span>+${Math.floor(Math.random() * 10) + 5}</span></div>
+                                <div><span>التقدم اليومي</span> <span>${goals.percent}%</span></div>
+                            </div>
+                            <button class="btn-continue" onclick="App.goHome()">
+                                <span class="material-symbols-outlined">home</span>
+                                العودة للرئيسية
+                            </button>
+                            <button class="btn-secondary" onclick="App.startLearning()">
+                                <span class="material-symbols-outlined">refresh</span>
+                                جلسة أخرى
+                            </button>
+                        </div>
+                    `;
+
+                    this.root.innerHTML = html;
+                    this.currentScreen = 'complete';
+                },
+
+                // ===== صفحة الأخطاء =====
+                renderMistakes: function() {
+                    const mistakes = MistakesEngine.getTopMistakes(20);
+
+                    let html = `
+                        <div class="page-container">
+                            <div class="page-header">
+                                <button class="back-btn" onclick="App.goHome()">
+                                    <span class="material-symbols-outlined">arrow_back</span>
+                                </button>
+                                <h2>أخطائي</h2>
+                                <span class="material-symbols-outlined" style="color:#F5B041;">error</span>
+                            </div>
+                            <p style="color:#AAAAAA;margin-bottom:16px;">الكلمات والقواعد التي أخطأت فيها أكثر من مرة</p>
+                    `;
+
+                    if (mistakes.length === 0) {
+                        html += `
+                            <div class="empty-state">
+                                <span class="material-symbols-outlined" style="font-size:3rem;color:#666;">check_circle</span>
+                                <p>لا توجد أخطاء مسجلة! ممتاز!</p>
+                            </div>
+                        `;
+                    } else {
+                        html += `<div class="mistakes-list">`;
+                        mistakes.forEach(m => {
+                            const detail = m.details || {};
+                            html += `
+                                <div class="mistake-item">
+                                    <div class="mistake-header">
+                                        <span class="mistake-type">${m.type === 'word' ? '📖' : '📐'} ${m.type}</span>
+                                        <span class="mistake-count">${m.count} مرات</span>
+                                    </div>
+                                    <div class="mistake-detail">
+                                        ${detail.word ? `<span>${detail.word}</span>` : ''}
+                                        ${detail.translation ? `<span style="color:#888;">${detail.translation}</span>` : ''}
+                                        ${detail.rule ? `<span>${detail.rule}</span>` : ''}
+                                    </div>
+                                    <button class="btn-sm" onclick="App.reviewMistake('${m.itemId}')">
+                                        <span class="material-symbols-outlined">sync</span> مراجعة
+                                    </button>
+                                </div>
+                            `;
+                        });
+                        html += `</div>`;
+                    }
+
+                    html += `</div>`;
+                    this.root.innerHTML = html;
+                    this.currentScreen = 'mistakes';
+                },
+
+                // ===== صفحة الإحصائيات =====
+                renderStatistics: function() {
+                    const stats = StatisticsEngine.getStats();
+                    const ach = AchievementsEngine.getAchievements();
+                    const weak = StatisticsEngine.getWeakItems();
+
+                    let html = `
+                        <div class="page-container">
+                            <div class="page-header">
+                                <button class="back-btn" onclick="App.goHome()">
+                                    <span class="material-symbols-outlined">arrow_back</span>
+                                </button>
+                                <h2>الإحصائيات</h2>
+                                <span class="material-symbols-outlined" style="color:#F5B041;">analytics</span>
+                            </div>
+                            <div class="stats-grid">
+                                <div class="stat-card">
+                                    <span class="material-symbols-outlined">check_circle</span>
+                                    <span class="stat-value">${stats.correctAnswers}</span>
+                                    <span class="stat-label">إجابات صحيحة</span>
+                                </div>
+                                <div class="stat-card">
+                                    <span class="material-symbols-outlined">cancel</span>
+                                    <span class="stat-value">${stats.wrongAnswers}</span>
+                                    <span class="stat-label">إجابات خاطئة</span>
+                                </div>
+                                <div class="stat-card">
+                                    <span class="material-symbols-outlined">percent</span>
+                                    <span class="stat-value">${stats.averageScore}%</span>
+                                    <span class="stat-label">متوسط النجاح</span>
+                                </div>
+                                <div class="stat-card">
+                                    <span class="material-symbols-outlined">school</span>
+                                    <span class="stat-value">${ach.wordsMastered}</span>
+                                    <span class="stat-label">كلمات متقنة</span>
+                                </div>
+                            </div>
+                            <div class="stats-section">
+                                <h3>نقاط القوة والضعف</h3>
+                                <div class="strength-item">
+                                    <span>المفردات</span>
+                                    <div class="bar"><div class="fill" style="width:${Math.min(100, ach.wordsMastered * 2)}%;"></div></div>
+                                    <span>${Math.min(100, ach.wordsMastered * 2)}%</span>
+                                </div>
+                                <div class="strength-item">
+                                    <span>القواعد</span>
+                                    <div class="bar"><div class="fill" style="width:${Math.min(100, ach.grammarMastered * 5)}%;"></div></div>
+                                    <span>${Math.min(100, ach.grammarMastered * 5)}%</span>
+                                </div>
+                                <div class="strength-item">
+                                    <span>القراءة</span>
+                                    <div class="bar"><div class="fill" style="width:${Math.min(100, ach.storiesCompleted * 10)}%;"></div></div>
+                                    <span>${Math.min(100, ach.storiesCompleted * 10)}%</span>
+                                </div>
+                            </div>
+                            ${weak.weakWords.length > 0 ? `
+                                <div class="stats-section">
+                                    <h3>الكلمات الأكثر خطأ</h3>
+                                    ${weak.weakWords.map(w => `
+                                        <div class="weak-tag">${w.details?.word || w.itemId}</div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+
+                    this.root.innerHTML = html;
+                    this.currentScreen = 'statistics';
+                },
+
+                // ===== صفحة الإنجازات =====
+                renderAchievements: function() {
+                    const ach = AchievementsEngine.getAchievements();
+
+                    let html = `
+                        <div class="page-container">
+                            <div class="page-header">
+                                <button class="back-btn" onclick="App.goHome()">
+                                    <span class="material-symbols-outlined">arrow_back</span>
+                                </button>
+                                <h2>الإنجازات</h2>
+                                <span class="material-symbols-outlined" style="color:#F5B041;">emoji_events</span>
+                            </div>
+                            <div class="achievements-grid">
+                                <div class="achievement-card">
+                                    <span class="material-symbols-outlined">menu_book</span>
+                                    <span class="achievement-value">${ach.wordsMastered}</span>
+                                    <span class="achievement-label">كلمات متقنة</span>
+                                </div>
+                                <div class="achievement-card">
+                                    <span class="material-symbols-outlined">code</span>
+                                    <span class="achievement-value">${ach.grammarMastered}</span>
+                                    <span class="achievement-label">قواعد متقنة</span>
+                                </div>
+                                <div class="achievement-card">
+                                    <span class="material-symbols-outlined">book</span>
+                                    <span class="achievement-value">${ach.storiesCompleted}</span>
+                                    <span class="achievement-label">قصص مكتملة</span>
+                                </div>
+                                <div class="achievement-card">
+                                    <span class="material-symbols-outlined">local_fire_department</span>
+                                    <span class="achievement-value">${ach.daysStreak}</span>
+                                    <span class="achievement-label">سلسلة أيام</span>
+                                </div>
+                                <div class="achievement-card">
+                                    <span class="material-symbols-outlined">stars</span>
+                                    <span class="achievement-value">${ach.level}</span>
+                                    <span class="achievement-label">المستوى</span>
+                                </div>
+                                <div class="achievement-card">
+                                    <span class="material-symbols-outlined">military_tech</span>
+                                    <span class="achievement-value">${ach.xp}</span>
+                                    <span class="achievement-label">نقاط XP</span>
+                                </div>
+                            </div>
+                            <div class="achievements-badges">
+                                <h3>الشارات</h3>
+                                ${ach.badges.length > 0 ? ach.badges.map(b => `
+                                    <span class="badge">${b}</span>
+                                `).join('') : '<p style="color:#888;">لا توجد شارات بعد، واصل التعلم!</p>'}
+                            </div>
+                        </div>
+                    `;
+
+                    this.root.innerHTML = html;
+                    this.currentScreen = 'achievements';
+                },
+
+                // ===== صفحة القصص =====
+                renderStories: function() {
+                    const level = storageGet(STORAGE.USER_LEVEL, 'A1');
+                    const stories = StoryReader.getStories(level);
+
+                    let html = `
+                        <div class="page-container">
+                            <div class="page-header">
+                                <button class="back-btn" onclick="App.goHome()">
+                                    <span class="material-symbols-outlined">arrow_back</span>
+                                </button>
+                                <h2>القصص</h2>
+                                <span class="material-symbols-outlined" style="color:#F5B041;">book</span>
+                            </div>
+                            <p style="color:#AAAAAA;margin-bottom:16px;">اقرأ القصص وتعلم كلمات جديدة</p>
+                    `;
+
+                    if (stories.length === 0) {
+                        html += `
+                            <div class="empty-state">
+                                <span class="material-symbols-outlined" style="font-size:3rem;color:#666;">book</span>
+                                <p>لا توجد قصص في هذا المستوى</p>
+                            </div>
+                        `;
+                    } else {
+                        html += `<div class="stories-list">`;
+                        stories.forEach(story => {
+                            html += `
+                                <div class="story-item" onclick="App.readStory('${level}', '${story.id}')">
+                                    <div class="story-title">${story.title || 'قصة'}</div>
+                                    <div class="story-preview">${story.story ? story.story.substring(0, 80) + '...' : ''}</div>
+                                </div>
+                            `;
+                        });
+                        html += `</div>`;
+                    }
+
+                    html += `</div>`;
+                    this.root.innerHTML = html;
+                    this.currentScreen = 'stories';
+                },
+
+                // ===== قارئ القصة التفاعلي =====
+                renderStoryReader: function(level, storyId) {
+                    const story = StoryReader.getStory(level, storyId);
+                    if (!story) {
+                        this.renderStories();
+                        return;
+                    }
+
+                    const words = story.story.split(/\s+/);
+
+                    let html = `
+                        <div class="page-container">
+                            <div class="page-header">
+                                <button class="back-btn" onclick="App.goToStories()">
+                                    <span class="material-symbols-outlined">arrow_back</span>
+                                </button>
+                                <h2>${story.title || 'قصة'}</h2>
+                                <span class="material-symbols-outlined" style="color:#F5B041;">book</span>
+                            </div>
+                            <div class="story-content" id="storyContent">
+                                ${words.map(word => `
+                                    <span class="story-word" onclick="App.showWordMeaning('${word.replace(/'/g, "\\'")}', '${level}')">
+                                        ${word}
+                                    </span>
+                                `).join(' ')}
+                            </div>
+                            <div class="story-tooltip" id="storyTooltip" style="display:none;"></div>
+                            <button class="btn-primary" onclick="App.finishStory('${storyId}')" style="margin-top:16px;">
+                                <span class="material-symbols-outlined">check</span> أنهيت القراءة
+                            </button>
+                        </div>
+                    `;
+
+                    this.root.innerHTML = html;
+                    this.currentScreen = 'story_reader';
+                    this.currentStory = story;
+                }
+            };
+
+            // ============================================================
+            // 13. التطبيق الرئيسي (App Controller)
+            // ============================================================
+            window.App = {
+                // ===== التنقل =====
+                goHome: function() {
+                    AchievementsEngine.update();
+                    UI.renderHome();
+                },
+
+                goToMistakes: function() {
+                    UI.renderMistakes();
+                },
+
+                goToStatistics: function() {
+                    UI.renderStatistics();
+                },
+
+                goToAchievements: function() {
+                    UI.renderAchievements();
+                },
+
+                goToStories: function() {
+                    UI.renderStories();
+                },
+
+                readStory: function(level, storyId) {
+                    UI.renderStoryReader(level, storyId);
+                },
+
+                // ===== بدء التعلم =====
+                startLearning: function() {
+                    // تسجيل الجلسة
+                    const level = storageGet(STORAGE.USER_LEVEL, 'A1');
+                    storageSet(STORAGE.LAST_SESSION, {
+                        level: level,
+                        type: 'lesson',
+                        date: new Date().toISOString()
+                    });
+                    UI.renderLearningSession();
+                },
+
+                startReview: function() {
+                    UI.renderLearningSession();
+                },
+
+                // ===== التعامل مع التمارين =====
+                checkExercise: function(userAnswer) {
+                    const exercise = UI.currentExercises[UI.currentExerciseIndex];
+                    if (!exercise) return;
+
+                    const isCorrect = ExerciseEngine.checkAnswer(exercise, userAnswer);
+                    const itemId = exercise._itemId || 'unknown';
+
+                    // تحديث نظام المراجعة
+                    const reviewItems = ReviewEngine.getItems();
+                    let item = reviewItems[itemId];
+                    if (item) {
+                        ReviewEngine.updateItem(itemId, isCorrect);
+                    }
+
+                    // تحديث الأهداف اليومية
+                    if (isCorrect) {
+                        DailyGoalsEngine.updateProgress('word_learned');
+                        DailyGoalsEngine.updateProgress('exercise');
+                        // منح XP
+                        let xp = storageGet('eng_xp', 0);
+                        xp += 10;
+                        storageSet('eng_xp', xp);
+                    } else {
+                        DailyGoalsEngine.updateProgress('exercise');
+                    }
+
+                    // عرض التغذية الراجعة
+                    this.showFeedback(isCorrect);
+
+                    // الانتقال للتمرين التالي بعد تأخير
+                    setTimeout(() => {
+                        UI.currentExerciseIndex++;
+                        UI.renderExercise();
+                    }, 1200);
+                },
+
+                showFeedback: function(isCorrect) {
+                    const feedback = document.createElement('div');
+                    feedback.className = `feedback-popup ${isCorrect ? 'correct' : 'wrong'}`;
+                    feedback.innerHTML = `
+                        <span class="material-symbols-outlined">${isCorrect ? 'check_circle' : 'cancel'}</span>
+                        <span>${isCorrect ? 'صحيح! +10 XP' : 'خطأ، حاول مجدداً'}</span>
+                    `;
+                    document.body.appendChild(feedback);
+                    setTimeout(() => {
+                        feedback.style.opacity = '0';
+                        feedback.style.transform = 'translateY(-20px)';
+                        setTimeout(() => feedback.remove(), 300);
+                    }, 1000);
+                },
+
+                // ===== مراجعة خطأ معين =====
+                reviewMistake: function(itemId) {
+                    const mistakes = MistakesEngine.getMistakes();
+                    const mistake = mistakes.find(m => m.itemId === itemId);
+                    if (!mistake) return;
+
+                    // نبحث عن العنصر في البيانات
+                    const data = window.APP_DATA[mistake.level];
+                    if (!data) return;
+
+                    let item = null;
+                    if (mistake.type === 'word') {
+                        item = data.words.find(w => w.id === itemId);
+                    } else if (mistake.type === 'grammar') {
+                        item = data.grammar.find(g => g.id === itemId);
+                    }
+
+                    if (!item) return;
+
+                    // نضعه في جلسة تعلم
+                    const exercise = ExerciseEngine.createExercise({
+                        id: itemId,
+                        type: mistake.type,
+                        level: mistake.level
+                    }, 'translate');
+
+                    if (exercise) {
+                        UI.currentExercises = [exercise];
+                        UI.currentExerciseIndex = 0;
+                        UI.renderExercise();
+                    }
+                },
+
+                // ===== القصص =====
+                showWordMeaning: function(word, level) {
+                    const meaning = StoryReader.getWordMeaning(word, level);
+                    const tooltip = document.getElementById('storyTooltip');
+                    if (!tooltip || !meaning) return;
+
+                    tooltip.style.display = 'block';
+                    tooltip.innerHTML = `
+                        <div class="tooltip-content">
+                            <strong>${meaning.word}</strong>
+                            <span>${meaning.translation}</span>
+                            ${meaning.example ? `<span style="color:#888;font-size:0.85rem;">${meaning.example}</span>` : ''}
+                            <button onclick="App.speak('${meaning.word}')" class="btn-sm">
+                                <span class="material-symbols-outlined">volume_up</span>
+                            </button>
+                        </div>
+                    `;
+                    tooltip.style.position = 'fixed';
+                    tooltip.style.bottom = '20%';
+                    tooltip.style.left = '50%';
+                    tooltip.style.transform = 'translateX(-50%)';
+                    tooltip.style.width = '90%';
+                    tooltip.style.maxWidth = '400px';
+                    tooltip.style.backgroundColor = '#1E1E1E';
+                    tooltip.style.border = '1px solid #F5B041';
+                    tooltip.style.borderRadius = '16px';
+                    tooltip.style.padding = '16px';
+                    tooltip.style.zIndex = '999';
+
+                    // إغلاق عند النقر خارجها
+                    setTimeout(() => {
+                        document.addEventListener('click', function closeTooltip(e) {
+                            if (!tooltip.contains(e.target) && e.target.className !== 'story-word') {
+                                tooltip.style.display = 'none';
+                                document.removeEventListener('click', closeTooltip);
+                            }
+                        });
+                    }, 100);
+                },
+
+                finishStory: function(storyId) {
+                    StoryReader.markAsRead(storyId);
+                    this.goToStories();
+                },
+
+                // ===== النطق =====
+                speak: function(text) {
+                    if ('speechSynthesis' in window) {
+                        const utterance = new SpeechSynthesisUtterance(text);
+                        utterance.lang = 'en-US';
+                        utterance.rate = 0.9;
+                        speechSynthesis.speak(utterance);
+                    } else {
+                        alert('متصفحك لا يدعم النطق الصوتي');
+                    }
+                },
+
+                // ===== تهيئة التطبيق =====
+                init: function() {
+                    // التحقق من البيانات
+                    if (!window.APP_DATA) {
+                        document.getElementById('screen-root').innerHTML = `
+                            <div style="padding:40px;color:red;text-align:center;">
+                                خطأ: ملف البيانات غير موجود
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    // اختبار تحديد المستوى
+                    if (!PlacementEngine.isDone()) {
+                        this.runPlacementTest();
+                        return;
+                    }
+
+                    // تحديث الإنجازات
+                    AchievementsEngine.update();
+
+                    // عرض الصفحة الرئيسية
+                    this.goHome();
+                },
+
+                // ===== اختبار تحديد المستوى =====
+                runPlacementTest: function() {
+                    const questions = PlacementEngine.generateTest();
+                    let html = `
+                        <div class="page-container">
+                            <div class="page-header">
+                                <h2>اختبار تحديد المستوى</h2>
+                                <span class="material-symbols-outlined" style="color:#F5B041;">quiz</span>
+                            </div>
+                            <p style="color:#AAAAAA;margin-bottom:16px;">أجب عن الأسئلة التالية لتحديد مستواك المناسب</p>
+                            <div id="placementQuestions"></div>
+                            <button class="btn-primary" onclick="App.submitPlacement()" id="placementSubmit">
+                                <span class="material-symbols-outlined">check</span> إنهاء الاختبار
+                            </button>
+                        </div>
+                    `;
+                    document.getElementById('screen-root').innerHTML = html;
+
+                    const container = document.getElementById('placementQuestions');
+                    const answers = [];
+                    questions.forEach((q, i) => {
+                        const div = document.createElement('div');
+                        div.className = 'placement-question';
+                        div.innerHTML = `
+                            <div class="placement-q">${i+1}. ${q.question}</div>
+                            <div class="placement-options">
+                                ${q.options.map(opt => `
+                                    <button class="option-btn" onclick="App.selectPlacementAnswer(${i}, '${opt.replace(/'/g, "\\'")}')">
+                                        ${opt}
+                                    </button>
+                                `).join('')}
+                            </div>
+                            <input type="hidden" id="placement_${i}" value="">
+                        `;
+                        container.appendChild(div);
+                        answers.push({ ...q, selected: null });
+                    });
+
+                    window._placementAnswers = answers;
+                    window._placementQuestions = questions;
+                },
+
+                selectPlacementAnswer: function(index, value) {
+                    const answers = window._placementAnswers;
+                    if (!answers) return;
+                    answers[index].selected = value;
+
+                    // تمييز الزر المختار
+                    const container = document.getElementById('placementQuestions');
+                    const questionDiv = container.children[index];
+                    const buttons = questionDiv.querySelectorAll('.option-btn');
+                    buttons.forEach(btn => {
+                        btn.style.borderColor = btn.textContent === value ? '#F5B041' : '#2A2A2A';
+                        btn.style.background = btn.textContent === value ? 'rgba(245, 176, 65, 0.2)' : '#1E1E1E';
+                    });
+
+                    // تحديث الحقل المخفي
+                    document.getElementById(`placement_${index}`).value = value;
+                },
+
+                submitPlacement: function() {
+                    const answers = window._placementAnswers;
+                    if (!answers) return;
+
+                    // التحقق من الإجابة على جميع الأسئلة
+                    const unanswered = answers.filter(a => !a.selected);
+                    if (unanswered.length > 0) {
+                        alert(`يرجى الإجابة على جميع الأسئلة (${unanswered.length} متبقية)`);
+                        return;
+                    }
+
+                    const result = PlacementEngine.evaluate(answers);
+                    PlacementEngine.setDone(result.level);
+
+                    // عرض النتيجة
+                    let html = `
+                        <div class="page-container">
+                            <div class="page-header">
+                                <h2>نتيجة الاختبار</h2>
+                                <span class="material-symbols-outlined" style="color:#F5B041;">score</span>
+                            </div>
+                            <div class="result-card">
+                                <div class="result-score">${result.percentage}%</div>
+                                <div class="result-detail">${result.score} من ${result.total} إجابات صحيحة</div>
+                                <div class="result-level">المستوى المحدد: <strong>${result.level}</strong></div>
+                            </div>
+                            <button class="btn-primary" onclick="App.goHome()">
+                                <span class="material-symbols-outlined">arrow_forward</span>
+                                ابدأ التعلم
+                            </button>
+                        </div>
+                    `;
+                    document.getElementById('screen-root').innerHTML = html;
+
+                    // تحديث الإحصائيات
+                    StatisticsEngine.updateLevelScore(result.level, result.percentage);
+                }
+            };
+
+            // ============================================================
+            // 14. بدء التشغيل
+            // ============================================================
+            document.addEventListener('DOMContentLoaded', function() {
+                window.App.init();
             });
 
-            // التحدي 2: إكمال الجملة (إذا وجد مثال)
-            if (word.example) {
-              const example = word.example;
-              // نستخرج الكلمة من الجملة ونضعها مكانها
-              const parts = example.split(word.word);
-              if (parts.length > 1) {
-                const blankSentence = parts[0] + '______' + parts.slice(1).join('');
-                challenges.push({
-                  type: 'fill',
-                  word: word,
-                  sentence: blankSentence,
-                  correct: word.word,
-                  options: this.generateOptions(word.word, 'word')
-                });
-              }
-            }
-          }
-
-          // خلط التحديات قليلاً
-          this.currentChallenges = challenges.sort(() => Math.random() - 0.5);
-          this.currentChallengeIndex = 0;
-        },
-
-        // توليد خيارات عشوائية (3 خيارات خاطئة + 1 صحيح)
-        generateOptions: function(correctValue, field) {
-          const pool = this.currentLevelWords;
-          const options = new Set();
-          options.add(correctValue);
-          
-          // نبحث عن قيم مختلفة من الكلمات الأخرى
-          for (let i = 0; i < pool.length && options.size < 4; i++) {
-            const w = pool[i];
-            if (!w) continue;
-            let candidate = null;
-            if (field === 'translation' && w.translation) candidate = w.translation;
-            else if (field === 'word' && w.word) candidate = w.word;
-            
-            if (candidate && candidate !== correctValue && !options.has(candidate)) {
-              options.add(candidate);
-            }
-          }
-          
-          // إذا لم نجد 4 خيارات، نضيف قيماً وهمية
-          const fallbacks = ['??', '---', '...', '???'];
-          let fallbackIndex = 0;
-          while (options.size < 4) {
-            options.add(fallbacks[fallbackIndex % fallbacks.length] + Math.random());
-            fallbackIndex++;
-          }
-          
-          // تحويل إلى مصفوفة وخلطها
-          return Array.from(options).sort(() => Math.random() - 0.5);
-        },
-
-        // الحصول على التحدي الحالي
-        getCurrentChallenge: function() {
-          if (this.currentChallengeIndex < this.currentChallenges.length) {
-            return this.currentChallenges[this.currentChallengeIndex];
-          }
-          return null;
-        },
-
-        // معالجة الإجابة
-        submitAnswer: function(challenge, selectedValue) {
-          if (this.isAnswering) return { success: false, reason: 'busy' };
-          this.isAnswering = true;
-
-          const isCorrect = (selectedValue === challenge.correct);
-          const word = challenge.word;
-
-          // تسجيل المحاولات للتكرار المتباعد
-          if (!this.state.wordAttempts[word.id]) {
-            this.state.wordAttempts[word.id] = { correct: 0, wrong: 0 };
-          }
-          if (isCorrect) {
-            this.state.wordAttempts[word.id].correct += 1;
-            // منح XP
-            const earnedXP = 10 + (this.state.streak > 0 ? 2 : 0);
-            this.state.xp += earnedXP;
-            this.state.dailyGoal += 1;
-            
-            // إذا أتقنها (أجاب صحيح 3 مرات)
-            if (this.state.wordAttempts[word.id].correct >= 3) {
-              if (!this.state.masteredWords.includes(word.id)) {
-                this.state.masteredWords.push(word.id);
-              }
-            }
-          } else {
-            this.state.wordAttempts[word.id].wrong += 1;
-            // ننقص XP قليلاً (لا يشعر بالإحباط)
-            this.state.xp = Math.max(0, this.state.xp - 2);
-            // إضافتها للضعيفة
-            if (!this.state.weakWords.includes(word.id)) {
-              this.state.weakWords.push(word.id);
-            }
-          }
-
-          // تحديث السلسلة اليومية
-          const today = new Date().toDateString();
-          if (this.state.lastDate !== today) {
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            if (this.state.lastDate === yesterday.toDateString()) {
-              this.state.streak += 1;
-            } else {
-              this.state.streak = 1;
-            }
-            this.state.lastDate = today;
-          }
-
-          // تقدم المؤشر
-          this.state.currentWordIndex += 1;
-          saveState(this.state);
-          this.isAnswering = false;
-          
-          return {
-            success: true,
-            isCorrect: isCorrect,
-            earnedXP: isCorrect ? (10 + (this.state.streak > 0 ? 2 : 0)) : 0,
-            nextChallenge: this.getCurrentChallenge()
-          };
-        },
-
-        // التحقق من وجود تحديات متبقية
-        hasMoreChallenges: function() {
-          return this.currentChallengeIndex < this.currentChallenges.length;
-        },
-
-        // الانتقال إلى التحدي التالي
-        nextChallenge: function() {
-          this.currentChallengeIndex += 1;
-          return this.getCurrentChallenge();
-        },
-
-        // الحصول على إحصائيات الشاشة الرئيسية
-        getHomeStats: function() {
-          const levelData = window.APP_DATA[this.state.level];
-          const totalWords = levelData ? levelData.words.length : 0;
-          const masteredCount = this.state.masteredWords.length;
-          const progressPercent = totalWords > 0 ? Math.round((masteredCount / totalWords) * 100) : 0;
-          
-          // حساب XP المطلوب للمستوى التالي (تدرج بسيط)
-          const xpForNext = 100 + (this.state.xp / 10);
-          
-          return {
-            level: this.state.level,
-            xp: this.state.xp,
-            streak: this.state.streak,
-            dailyGoal: this.state.dailyGoal,
-            mastered: masteredCount,
-            total: totalWords,
-            progress: progressPercent,
-            weak: this.state.weakWords.slice(0, 5).map(id => {
-              const word = levelData?.words.find(w => w.id === id);
-              return word ? word.word : '?';
-            }),
-            xpForNext: Math.floor(xpForNext)
-          };
-        }
-      };
-
-      // =============================================
-      // 3. واجهة المستخدم (UI Renderer)
-      // =============================================
-      const UI = {
-        root: document.getElementById('screen-root'),
-
-        // عرض الشاشة الرئيسية (لوحة التحكم)
-        renderHome: function() {
-          const stats = Game.getHomeStats();
-          const levelLabel = window.APP_LEVEL_LABELS?.[stats.level] || stats.level;
-
-          this.root.innerHTML = `
-            <div class="home-container">
-              <!-- الشريط العلوي -->
-              <div class="top-bar">
-                <div class="level-badge">
-                  <span class="material-symbols-outlined">account_circle</span>
-                  <span>${stats.level}</span>
-                </div>
-                <div class="streak-badge">
-                  <span class="material-symbols-outlined">local_fire_department</span>
-                  <span>${stats.streak}</span>
-                </div>
-              </div>
-
-              <!-- شريط الخبرة -->
-              <div class="xp-container">
-                <div class="xp-label">
-                  <span>نقاط الخبرة (XP)</span>
-                  <span>${stats.xp}</span>
-                </div>
-                <div class="xp-bar-bg">
-                  <div class="xp-bar-fill" style="width: ${Math.min(100, (stats.xp / stats.xpForNext) * 100)}%;"></div>
-                </div>
-                <div class="xp-next">المستوى التالي: ${Math.floor(stats.xpForNext - stats.xp)} XP متبقية</div>
-              </div>
-
-              <!-- الهدف اليومي -->
-              <div class="daily-goal">
-                <span class="material-symbols-outlined">today</span>
-                <span>هدف اليوم: ${stats.dailyGoal} / 5 تحديات</span>
-                <div class="daily-bar-bg">
-                  <div class="daily-bar-fill" style="width: ${Math.min(100, (stats.dailyGoal / 5) * 100)}%;"></div>
-                </div>
-              </div>
-
-              <!-- زر الاستمرار الضخم -->
-              <button class="btn-continue" onclick="App.startChallenge()">
-                <span class="material-symbols-outlined">play_arrow</span>
-                واصل التعلم
-              </button>
-
-              <!-- المهارات الضعيفة -->
-              <div class="weak-section">
-                <div class="weak-header">
-                  <span class="material-symbols-outlined">warning</span>
-                  <span>كلمات تحتاج مراجعة</span>
-                </div>
-                <div class="weak-tags">
-                  ${stats.weak.length > 0 ? stats.weak.map(w => `<span class="tag">${w}</span>`).join('') : '<span style="color:#666;font-size:0.9rem;">ممتاز! لا توجد كلمات ضعيفة</span>'}
-                </div>
-              </div>
-
-              <!-- التقدم الكلي -->
-              <div class="progress-summary">
-                <div class="progress-circle" style="background: conic-gradient(#F5B041 ${stats.progress}%, #2A2A2A ${stats.progress}%);">
-                  <span>${stats.progress}%</span>
-                </div>
-                <div class="progress-text">
-                  <span>${stats.mastered} من ${stats.total} كلمة</span>
-                  <span>مستوى ${stats.level}</span>
-                </div>
-              </div>
-            </div>
-          `;
-        },
-
-        // عرض شاشة التحدي
-        renderChallenge: function(challenge) {
-          if (!challenge) {
-            // لا مزيد من التحديات، نعرض شاشة الإنجاز
-            this.renderComplete();
-            return;
-          }
-
-          const word = challenge.word;
-          let questionHtml = '';
-          let optionsHtml = challenge.options.map(opt => `
-            <button class="option-btn" data-value="${opt}" onclick="App.handleAnswer('${opt.replace(/'/g, "\\'")}')">
-              ${opt}
-            </button>
-          `).join('');
-
-          if (challenge.type === 'translate') {
-            questionHtml = `
-              <div class="challenge-icon"><span class="material-symbols-outlined">translate</span></div>
-              <div class="question-text">ما هي ترجمة كلمة <strong>"${word.word}"</strong>؟</div>
-              <div class="audio-btn" onclick="App.speak('${word.word}')">
-                <span class="material-symbols-outlined">volume_up</span>
-              </div>
-            `;
-          } else if (challenge.type === 'fill') {
-            questionHtml = `
-              <div class="challenge-icon"><span class="material-symbols-outlined">text_fields</span></div>
-              <div class="question-text">أكمل الجملة: <strong>"${challenge.sentence}"</strong></div>
-            `;
-          }
-
-          this.root.innerHTML = `
-            <div class="challenge-container">
-              <div class="challenge-progress">
-                <span>التحدي ${Game.currentChallengeIndex + 1} من ${Game.currentChallenges.length}</span>
-                <span class="material-symbols-outlined" style="color:#F5B041;">stars</span>
-              </div>
-              <div class="question-card">
-                ${questionHtml}
-                <div class="options-grid">
-                  ${optionsHtml}
-                </div>
-              </div>
-              <div class="challenge-hint">
-                <span class="material-symbols-outlined">lightbulb</span>
-                <span>اختر الإجابة الصحيحة بسرعة</span>
-              </div>
-            </div>
-          `;
-
-          // إضافة تأثير الدخول
-          const card = this.root.querySelector('.question-card');
-          if (card) {
-            card.style.animation = 'none';
-            card.offsetHeight; // إعادة تدفق
-            card.style.animation = 'slideUp 0.3s ease forwards';
-          }
-        },
-
-        // شاشة الإنجاز (نهاية الجولة)
-        renderComplete: function() {
-          const stats = Game.getHomeStats();
-          this.root.innerHTML = `
-            <div class="complete-container">
-              <div class="complete-icon">
-                <span class="material-symbols-outlined" style="font-size:4rem;color:#F5B041;">emoji_events</span>
-              </div>
-              <h2>أحسنت!</h2>
-              <p>أكملت هذه الجولة بنجاح</p>
-              <div class="complete-stats">
-                <div><span>نقاط XP</span> <span>+${stats.dailyGoal * 2}</span></div>
-                <div><span>الكلمات المتقنة</span> <span>${stats.mastered}</span></div>
-              </div>
-              <button class="btn-continue" onclick="App.goHome()">
-                <span class="material-symbols-outlined">home</span>
-                العودة للرئيسية
-              </button>
-              <button class="btn-secondary" onclick="App.startChallenge()">
-                <span class="material-symbols-outlined">refresh</span>
-                جولة جديدة
-              </button>
-            </div>
-          `;
-        },
-
-        // عرض تغذية راجعة سريعة (صحيح/خطأ)
-        showFeedback: function(isCorrect, earnedXP) {
-          const feedback = document.createElement('div');
-          feedback.className = `feedback-popup ${isCorrect ? 'correct' : 'wrong'}`;
-          feedback.innerHTML = `
-            <span class="material-symbols-outlined">${isCorrect ? 'check_circle' : 'cancel'}</span>
-            <span>${isCorrect ? `صحيح! +${earnedXP} XP` : 'خطأ، حاول مجدداً'}</span>
-          `;
-          document.body.appendChild(feedback);
-          setTimeout(() => {
-            feedback.style.opacity = '0';
-            feedback.style.transform = 'translateY(-20px)';
-            setTimeout(() => feedback.remove(), 300);
-          }, 800);
-        }
-      };
-
-      // =============================================
-      // 4. التطبيق الرئيسي (App Controller)
-      // =============================================
-      window.App = {
-        // بدء أو متابعة التحديات
-        startChallenge: function() {
-          const level = Game.state.level;
-          // إذا لم تكن هناك كلمات محملة، نعيد تهيئة المستوى
-          if (Game.currentLevelWords.length === 0) {
-            Game.initLevel(level);
-          }
-          
-          // إذا انتهت التحديات أو لم تكن موجودة، نولد جديدة
-          if (!Game.hasMoreChallenges() || Game.currentChallenges.length === 0) {
-            Game.generateChallenges();
-          }
-
-          const challenge = Game.getCurrentChallenge();
-          if (challenge) {
-            UI.renderChallenge(challenge);
-          } else {
-            // إذا لم يكن هناك تحديات، نعرض شاشة الإنجاز
-            UI.renderComplete();
-          }
-        },
-
-        // معالجة اختيار الإجابة
-        handleAnswer: function(selected) {
-          if (Game.isAnswering) return;
-          
-          const challenge = Game.getCurrentChallenge();
-          if (!challenge) return;
-
-          // تعطيل الأزرار مؤقتاً
-          const btns = document.querySelectorAll('.option-btn');
-          btns.forEach(b => b.disabled = true);
-
-          const result = Game.submitAnswer(challenge, selected);
-          
-          // عرض التغذية الراجعة
-          UI.showFeedback(result.isCorrect, result.earnedXP);
-
-          // تمييز الزر الصحيح/الخاطئ
-          btns.forEach(btn => {
-            if (btn.dataset.value === challenge.correct) {
-              btn.style.borderColor = '#4CAF50';
-              btn.style.background = 'rgba(76, 175, 80, 0.2)';
-            } else if (btn.dataset.value === selected && !result.isCorrect) {
-              btn.style.borderColor = '#F44336';
-              btn.style.background = 'rgba(244, 67, 54, 0.2)';
-            }
-          });
-
-          // الانتقال إلى التالي بعد تأخير
-          setTimeout(() => {
-            const next = Game.nextChallenge();
-            if (next) {
-              UI.renderChallenge(next);
-            } else {
-              UI.renderComplete();
-            }
-          }, 1200);
-        },
-
-        // النطق باستخدام Web Speech API
-        speak: function(text) {
-          if ('speechSynthesis' in window) {
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'en-US';
-            utterance.rate = 0.9;
-            speechSynthesis.speak(utterance);
-          } else {
-            alert('متصفحك لا يدعم النطق الصوتي');
-          }
-        },
-
-        // العودة للشاشة الرئيسية
-        goHome: function() {
-          UI.renderHome();
-        },
-
-        // تشغيل التطبيق
-        init: function() {
-          if (!window.APP_DATA) {
-            this.root.innerHTML = `<div style="padding:40px;color:red;text-align:center;">خطأ: ملف data.js غير موجود أو تالف</div>`;
-            return;
-          }
-
-          // التأكد من تحميل المستوى الحالي
-          const level = Game.state.level;
-          if (!window.APP_DATA[level]) {
-            // إذا كان المستوى غير موجود، نختار أول مستوى
-            const firstLevel = window.APP_LEVELS?.[0] || 'A1';
-            Game.state.level = firstLevel;
-            saveState(Game.state);
-          }
-          
-          Game.initLevel(Game.state.level);
-          UI.renderHome();
-        }
-      };
-
-      // =============================================
-      // 5. بدء التشغيل
-      // =============================================
-      document.addEventListener('DOMContentLoaded', function() {
-        window.App.init();
-      });
-
-    })();
-  </script>
-
+        })();
+    </script>
 </body>
 </html>
