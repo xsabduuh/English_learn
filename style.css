@@ -1,0 +1,390 @@
+/* =========================================================
+   style.css
+   تصميم داكن، مخصص للهاتف (Mobile-First)
+   لون رئيسي: ذهبي #F5B041
+   ========================================================= */
+
+:root {
+  --color-bg: #0A0A0A;
+  --color-surface: #1C1C1E;
+  --color-surface-alt: #232326;
+  --color-border: #2E2E31;
+  --color-text: #F5F5F5;
+  --color-text-dim: #A0A0A3;
+  --color-gold: #F5B041;
+  --color-gold-dark: #C88A2E;
+  --color-success: #4CAF66;
+  --color-danger: #E05656;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  direction: rtl;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  max-width: 480px;
+  min-height: 100vh;
+  margin: 0 auto;
+  background-color: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+#screen-root {
+  flex: 1;
+  padding: var(--space-4) var(--space-4) var(--space-6);
+}
+
+button {
+  font-family: inherit;
+}
+
+button:focus-visible,
+.level-card:focus-visible,
+.section-row:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+/* ---------- الترويسة ---------- */
+
+.app-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-5) 0 var(--space-4);
+  position: relative;
+}
+
+.app-header.with-back {
+  padding-top: var(--space-4);
+}
+
+.app-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.app-subtitle {
+  font-size: 0.9rem;
+  color: var(--color-text-dim);
+  margin: 0;
+}
+
+.back-btn {
+  position: absolute;
+  top: var(--space-4);
+  left: 0;
+}
+
+.btn-icon {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* ---------- الأزرار ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background-color: var(--color-gold);
+  color: #1A1200;
+}
+
+.btn-primary:active {
+  background-color: var(--color-gold-dark);
+}
+
+.home-actions {
+  margin-bottom: var(--space-5);
+}
+
+/* ---------- شبكة المستويات ---------- */
+
+.levels-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.level-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  transition: border-color 0.15s ease;
+}
+
+.level-card:active {
+  border-color: var(--color-gold);
+}
+
+.level-card-badge {
+  align-self: flex-start;
+  background-color: rgba(245, 176, 65, 0.12);
+  color: var(--color-gold);
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+}
+
+.level-card-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.level-card-count {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  color: var(--color-text-dim);
+  font-size: 0.85rem;
+}
+
+.count-number {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+/* ---------- قائمة الأقسام داخل المستوى ---------- */
+
+.section-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.section-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  cursor: pointer;
+}
+
+.section-row-icon {
+  color: var(--color-gold);
+  width: 24px;
+  text-align: center;
+}
+
+.section-row-label {
+  flex: 1;
+  font-weight: 600;
+}
+
+.section-row-count {
+  color: var(--color-text-dim);
+  font-size: 0.9rem;
+  background-color: var(--color-surface-alt);
+  padding: 2px var(--space-3);
+  border-radius: 999px;
+}
+
+/* ---------- بطاقات المحتوى ---------- */
+
+.content-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.content-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.item-word {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-gold);
+}
+
+.item-translation {
+  color: var(--color-text-dim);
+  margin-top: var(--space-1);
+}
+
+.item-rule,
+.item-dialogue,
+.item-story {
+  line-height: 1.6;
+}
+
+/* ---------- الاختبارات ---------- */
+
+.quiz-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.quiz-question {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.quiz-question-text {
+  font-weight: 600;
+  margin-bottom: var(--space-3);
+}
+
+.quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.quiz-option {
+  background-color: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  text-align: right;
+  cursor: pointer;
+}
+
+.quiz-option.selected {
+  border-color: var(--color-gold);
+  background-color: rgba(245, 176, 65, 0.12);
+  color: var(--color-gold);
+}
+
+.submit-btn {
+  margin-top: var(--space-2);
+}
+
+/* ---------- نتيجة الاختبار ---------- */
+
+.result-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  margin-bottom: var(--space-4);
+}
+
+.result-score {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--color-gold);
+}
+
+.result-detail {
+  color: var(--color-text-dim);
+  margin-top: var(--space-2);
+}
+
+.result-suggestion,
+.result-status {
+  margin-top: var(--space-3);
+  font-weight: 700;
+}
+
+/* ---------- حالة فارغة وتنبيهات ---------- */
+
+.empty-state {
+  text-align: center;
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-text-dim);
+}
+
+.empty-state-icon {
+  font-size: 2rem;
+  color: var(--color-gold);
+  margin-bottom: var(--space-3);
+}
+
+.empty-state-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: var(--space-2);
+}
+
+.notice-box {
+  background-color: var(--color-surface-alt);
+  border: 1px solid var(--color-gold-dark);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.notice-title {
+  font-weight: 700;
+  color: var(--color-gold);
+  margin-bottom: var(--space-1);
+}
+
+.notice-message {
+  color: var(--color-text-dim);
+  font-size: 0.9rem;
+}
+
+/* ---------- تقليل الحركة عند الطلب ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
