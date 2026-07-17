@@ -4,21 +4,272 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>منصة التعلم</title>
-
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
-
   <div id="app">
     <main id="screen-root"></main>
   </div>
 
-  <!-- ترتيب التحميل مهم جداً: البيانات، ثم المحرك، ثم الواجهة، ثم المدير -->
+  <!-- تحميل data.js أولاً -->
   <script src="js/data.js"></script>
-  <script src="js/engine.js"></script>
-  <script src="js/ui.js"></script>
-  <script src="js/app.js"></script>
+  
+  <!-- ثم كل شيء آخر في ملف واحد لتجنب مشاكل التحميل -->
+  <script>
+    // ===== ENGINE (مبسط) =====
+    const Engine = {
+      getLevel: function(levelId) {
+        return window.APP_DATA && window.APP_DATA[levelId] ? window.APP_DATA[levelId] : null;
+      },
+      getWords: function(levelId) {
+        const level = this.getLevel(levelId);
+        return level && level.words ? level.words : [];
+      },
+      getQuizzes: function(levelId) {
+        const level = this.getLevel(levelId);
+        return level && level.quizzes ? level.quizzes : [];
+      },
+      getAllLevelsStats: function() {
+        const stats = {};
+        (window.APP_LEVELS || ["A1","A2","B1","B2"]).forEach(function(lv) {
+          const level = window.APP_DATA && window.APP_DATA[lv];
+          stats[lv] = {
+            words: level && level.words ? level.words.length : 0,
+            quizzes: level && level.quizzes ? level.quizzes.length : 0
+          };
+        });
+        return stats;
+      },
+      evaluateLevelQuiz: function(levelId, userAnswers) {
+        const quizzes = this.getQuizzes(levelId);
+        let correct = 0;
+        quizzes.forEach(function(q, i) {
+          if (userAnswers[i] && userAnswers[i] === q.answer) correct++;
+        });
+        const total = quizzes.length;
+        const percentage = total > 0 ? Math.round((correct/total)*100) : 0;
+        return { correct: correct, total: total, percentage: percentage, passed: percentage >= 60 };
+      },
+      recordQuizResult: function(levelId, result) {
+        try {
+          const key = "progress_" + levelId;
+          localStorage.setItem(key, JSON.stringify({
+            score: result.percentage,
+            date: new Date().toISOString()
+          }));
+        } catch(e) {}
+      }
+    };
 
+    // ===== UI (مبسط ومختبر بالكامل) =====
+    const UI = {
+      renderHome: function() {
+        const root = document.getElementById("screen-root");
+        if (!root) return;
+        const levels = window.APP_LEVELS || ["A1","A2","B1","B2"];
+        const stats = Engine.getAllLevelsStats();
+        const labels = window.APP_LEVEL_LABELS || {};
+        let html = `
+          <div style="padding:20px 0;">
+            <h1 style="color:#F5B041;font-size:1.8rem;text-align:center;">منصة التعلم</h1>
+            <p style="color:#AAAAAA;text-align:center;margin-bottom:20px;">اختر مستواك</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        `;
+        levels.forEach(function(lv) {
+          const s = stats[lv] || { words: 0 };
+          html += `
+            <div onclick="App.navigateTo('level',{levelId:'${lv}'})" 
+                 style="background:#1E1E1E;padding:20px;border-radius:16px;border:1px solid #2A2A2A;text-align:center;cursor:pointer;">
+              <div style="color:#F5B041;font-size:1.8rem;font-weight:900;">${lv}</div>
+              <div style="color:#AAAAAA;font-size:0.8rem;">${labels[lv] || lv}</div>
+              <div style="color:#888888;font-size:0.7rem;margin-top:6px;">${s.words} كلمة</div>
+            </div>
+          `;
+        });
+        html += `</div></div>`;
+        root.innerHTML = html;
+      },
+
+      renderLevel: function(levelId) {
+        const root = document.getElementById("screen-root");
+        if (!root) return;
+        const level = Engine.getLevel(levelId);
+        if (!level) {
+          root.innerHTML = "<p>المستوى غير موجود</p>";
+          return;
+        }
+        const labels = window.APP_LEVEL_LABELS || {};
+        let html = `
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <button onclick="App.navigateTo('home')" style="background:#333;border:none;color:white;padding:8px 16px;border-radius:30px;cursor:pointer;">العودة</button>
+            <h2 style="color:white;margin:0;">${labels[levelId] || levelId}</h2>
+          </div>
+          <div style="color:#AAAAAA;margin-bottom:16px;">${level.words.length} كلمة</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div onclick="App.navigateTo('content',{levelId:'${levelId}',sectionKey:'words',sectionLabel:'الكلمات'})" 
+                 style="background:#1E1E1E;padding:14px 16px;border-radius:12px;border:1px solid #2A2A2A;cursor:pointer;display:flex;justify-content:space-between;">
+              <span>📖 الكلمات</span>
+              <span style="color:#F5B041;">${level.words.length}</span>
+            </div>
+            <div onclick="App.navigateTo('content',{levelId:'${levelId}',sectionKey:'grammar',sectionLabel:'القواعد'})" 
+                 style="background:#1E1E1E;padding:14px 16px;border-radius:12px;border:1px solid #2A2A2A;cursor:pointer;display:flex;justify-content:space-between;">
+              <span>📐 القواعد</span>
+              <span style="color:#F5B041;">${level.grammar.length}</span>
+            </div>
+            <div onclick="App.navigateTo('content',{levelId:'${levelId}',sectionKey:'dialogues',sectionLabel:'الحوارات'})" 
+                 style="background:#1E1E1E;padding:14px 16px;border-radius:12px;border:1px solid #2A2A2A;cursor:pointer;display:flex;justify-content:space-between;">
+              <span>💬 الحوارات</span>
+              <span style="color:#F5B041;">${level.dialogues.length}</span>
+            </div>
+            <div onclick="App.navigateTo('content',{levelId:'${levelId}',sectionKey:'stories',sectionLabel:'القصص'})" 
+                 style="background:#1E1E1E;padding:14px 16px;border-radius:12px;border:1px solid #2A2A2A;cursor:pointer;display:flex;justify-content:space-between;">
+              <span>📚 القصص</span>
+              <span style="color:#F5B041;">${level.stories.length}</span>
+            </div>
+            <div onclick="App.navigateTo('quiz',{levelId:'${levelId}'})" 
+                 style="background:#F5B041;padding:14px 16px;border-radius:12px;cursor:pointer;display:flex;justify-content:center;color:#121212;font-weight:700;margin-top:10px;">
+              🧠 بدء الاختبار (${level.quizzes.length} سؤال)
+            </div>
+          </div>
+        `;
+        root.innerHTML = html;
+      },
+
+      renderContent: function(levelId, sectionKey, sectionLabel) {
+        const root = document.getElementById("screen-root");
+        if (!root) return;
+        const items = Engine.getLevel(levelId)?.[sectionKey] || [];
+        let html = `
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <button onclick="App.navigateTo('level',{levelId:'${levelId}'})" style="background:#333;border:none;color:white;padding:8px 16px;border-radius:30px;cursor:pointer;">العودة</button>
+            <h2 style="color:white;margin:0;">${sectionLabel}</h2>
+          </div>
+        `;
+        if (items.length === 0) {
+          html += `<p style="color:#888;">لا يوجد محتوى بعد</p>`;
+        } else {
+          items.forEach(function(item) {
+            if (sectionKey === "words") {
+              html += `<div style="background:#1E1E1E;padding:14px;border-radius:12px;margin-bottom:10px;border-right:3px solid #F5B041;">
+                <div style="color:#F5B041;font-weight:700;">${item.word}</div>
+                <div style="color:#AAAAAA;">${item.translation}</div>
+                <div style="color:#666;font-size:0.85rem;">${item.example || ''}</div>
+              </div>`;
+            } else {
+              html += `<div style="background:#1E1E1E;padding:14px;border-radius:12px;margin-bottom:10px;border-right:3px solid #F5B041;">
+                <div style="color:white;">${item.rule || item.dialogue || item.story || ''}</div>
+              </div>`;
+            }
+          });
+        }
+        root.innerHTML = html;
+      },
+
+      renderLevelQuiz: function(levelId) {
+        const root = document.getElementById("screen-root");
+        if (!root) return;
+        const quizzes = Engine.getQuizzes(levelId);
+        if (quizzes.length === 0) {
+          root.innerHTML = `<button onclick="App.navigateTo('level',{levelId:'${levelId}'})" style="background:#333;border:none;color:white;padding:8px 16px;border-radius:30px;cursor:pointer;">العودة</button><p>لا توجد أسئلة</p>`;
+          return;
+        }
+
+        let html = `
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <button onclick="App.navigateTo('level',{levelId:'${levelId}'})" style="background:#333;border:none;color:white;padding:8px 16px;border-radius:30px;cursor:pointer;">العودة</button>
+            <h2 style="color:white;margin:0;">اختبار ${levelId}</h2>
+          </div>
+          <div id="quizContainer"></div>
+          <button onclick="submitQuiz('${levelId}')" style="background:#F5B041;border:none;padding:14px;border-radius:30px;width:100%;font-weight:700;color:#121212;cursor:pointer;margin-top:16px;">تأكيد الإجابات</button>
+        `;
+        root.innerHTML = html;
+
+        const container = document.getElementById("quizContainer");
+        if (!container) return;
+        window._userAnswers = {};
+        quizzes.forEach(function(q, index) {
+          const qId = 'q' + index;
+          let optionsHtml = '';
+          q.options.forEach(function(opt) {
+            optionsHtml += `<button onclick="selectOption('${qId}','${opt}')" id="${qId}_${opt}" style="display:block;width:100%;background:#2A2A2A;border:1px solid #333;color:white;padding:12px;border-radius:30px;margin-bottom:6px;cursor:pointer;text-align:center;">${opt}</button>`;
+          });
+          container.innerHTML += `
+            <div style="background:#1E1E1E;padding:16px;border-radius:12px;margin-bottom:12px;border:1px solid #2A2A2A;">
+              <div style="font-weight:600;margin-bottom:10px;">${index+1}. ${q.question}</div>
+              ${optionsHtml}
+              <input type="hidden" id="answer_${qId}" value="">
+            </div>
+          `;
+        });
+
+        window._quizData = quizzes;
+        window._levelId = levelId;
+      },
+
+      renderResult: function(levelId, result) {
+        const root = document.getElementById("screen-root");
+        if (!root) return;
+        root.innerHTML = `
+          <div style="text-align:center;padding:30px 0;">
+            <div style="font-size:3rem;color:#F5B041;">${result.percentage}%</div>
+            <div style="color:#AAAAAA;">${result.correct} من ${result.total} إجابات صحيحة</div>
+            <div style="color:${result.passed ? '#4CAF50' : '#F44336'};font-weight:700;margin:12px 0;">${result.passed ? '✔ ناجح' : '✖ أعد المحاولة'}</div>
+            <button onclick="App.navigateTo('level',{levelId:'${levelId}'})" style="background:#F5B041;border:none;padding:14px;border-radius:30px;width:100%;font-weight:700;color:#121212;cursor:pointer;">العودة للمستوى</button>
+          </div>
+        `;
+      }
+    };
+
+    // ===== APP (المدير الرئيسي) =====
+    const App = {
+      navigateTo: function(screen, params) {
+        try {
+          switch(screen) {
+            case "home": UI.renderHome(); break;
+            case "level": if (params && params.levelId) UI.renderLevel(params.levelId); break;
+            case "content": if (params && params.levelId && params.sectionKey) UI.renderContent(params.levelId, params.sectionKey, params.sectionLabel || ""); break;
+            case "quiz": if (params && params.levelId) UI.renderLevelQuiz(params.levelId); break;
+            default: UI.renderHome();
+          }
+        } catch(e) {
+          document.getElementById("screen-root").innerHTML = `<p style="color:#F44336;">خطأ: ${e.message}</p><button onclick="App.navigateTo('home')" style="background:#333;border:none;color:white;padding:8px 16px;border-radius:30px;cursor:pointer;">الرئيسية</button>`;
+        }
+      }
+    };
+
+    // ===== دوال مساعدة للاختبار =====
+    window.selectOption = function(qId, value) {
+      document.querySelectorAll('[id^="' + qId + '_"]').forEach(function(el) {
+        el.style.borderColor = '#333';
+        el.style.background = '#2A2A2A';
+      });
+      document.getElementById(qId + '_' + value).style.borderColor = '#F5B041';
+      document.getElementById(qId + '_' + value).style.background = '#332811';
+      document.getElementById('answer_' + qId).value = value;
+      window._userAnswers[qId] = value;
+    };
+
+    window.submitQuiz = function(levelId) {
+      const quizzes = window._quizData || [];
+      const userAnswers = [];
+      quizzes.forEach(function(q, i) {
+        const qId = 'q' + i;
+        userAnswers.push(document.getElementById('answer_' + qId).value || '');
+      });
+      const result = Engine.evaluateLevelQuiz(levelId, userAnswers);
+      Engine.recordQuizResult(levelId, result);
+      UI.renderResult(levelId, result);
+    };
+
+    // ===== بدء التطبيق =====
+    document.addEventListener("DOMContentLoaded", function() {
+      if (window.APP_DATA && typeof window.APP_DATA === "object") {
+        App.navigateTo("home");
+      } else {
+        document.getElementById("screen-root").innerHTML = "<p style='color:#F44336;text-align:center;padding:40px;'>خطأ: بيانات التطبيق غير محملة.<br>تأكد من وجود ملف js/data.js</p>";
+      }
+    });
+  </script>
 </body>
 </html>
