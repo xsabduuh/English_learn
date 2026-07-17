@@ -1445,50 +1445,56 @@
 
                 // ===== اختبار تحديد المستوى =====
                 runPlacementTest: function() {
-                    const questions = PlacementEngine.generateTest();
-                    let html = `
-                        <div class="page-container">
-                            <div class="page-header">
-                                <h2>اختبار تحديد المستوى</h2>
-                                <span class="material-symbols-outlined" style="color:#F5B041;">quiz</span>
-                            </div>
-                            <p style="color:#AAAAAA;margin-bottom:16px;">أجب عن الأسئلة التالية لتحديد مستواك المناسب</p>
-                            <div id="placementQuestions"></div>
-                            <button class="btn-primary" onclick="App.submitPlacement()" id="placementSubmit">
-                                <span class="material-symbols-outlined">check</span> إنهاء الاختبار
-                            </button>
-                        </div>
-                    `;
-                    document.getElementById('screen-root').innerHTML = html;
+    const questions = PlacementEngine.generateTest();
+    let html = `
+        <div class="page-container">
+            <div class="page-header">
+                <h2>اختبار تحديد المستوى</h2>
+                <span class="material-symbols-outlined" style="color:#F5B041;">quiz</span>
+            </div>
+            <p style="color:#AAAAAA;margin-bottom:16px;">أجب عن الأسئلة التالية لتحديد مستواك المناسب</p>
+            <div id="placementQuestions"></div>
+            <button class="btn-primary" onclick="App.submitPlacement()" id="placementSubmit">
+                <span class="material-symbols-outlined">check</span> إنهاء الاختبار
+            </button>
+        </div>
+    `;
+    document.getElementById('screen-root').innerHTML = html;
 
-                    const container = document.getElementById('placementQuestions');
-                    const answers = [];
-                    questions.forEach((q, i) => {
-                        const div = document.createElement('div');
-                        div.className = 'placement-question';
-                        div.innerHTML = `
-                            <div class="placement-q">${i+1}. ${q.question}</div>
-                            <div class="placement-options">
-                                ${q.options.map(opt => `
-                                    <button class="option-btn" onclick="App.selectPlacementAnswer(${i}, '${opt.replace(/'/g, "\\'")}')">
-                                        ${opt}
-                                    </button>
-                                `).join('')}
-                            </div>
-                            <input type="hidden" id="placement_${i}" value="">
-                        `;
-                        container.appendChild(div);
-                        answers.push({ ...q, selected: null });
-                    });
+    const container = document.getElementById('placementQuestions');
+    const answers = [];
 
-                    window._placementAnswers = answers;
-                    window._placementQuestions = questions;
-                },
+    questions.forEach((q, i) => {
+        const div = document.createElement('div');
+        div.className = 'placement-question';
+        div.innerHTML = `
+            <div class="placement-q">${i+1}. ${q.question}</div>
+            <div class="placement-options" id="options_${i}">
+                <!-- سيتم إضافة الأزرار برمجياً -->
+            </div>
+            <input type="hidden" id="placement_${i}" value="">
+        `;
+        container.appendChild(div);
 
-                selectPlacementAnswer: function(index, value) {
-                    const answers = window._placementAnswers;
-                    if (!answers) return;
-                    answers[index].selected = value;
+        // إنشاء الأزرار برمجياً وربطها بالحدث
+        const optionsContainer = document.getElementById(`options_${i}`);
+        q.options.forEach(opt => {
+            const btn = document.createElement('button');
+            btn.className = 'option-btn';
+            btn.textContent = opt;
+            btn.dataset.value = opt;
+            btn.addEventListener('click', function() {
+                App.selectPlacementAnswer(i, opt);
+            });
+            optionsContainer.appendChild(btn);
+        });
+
+        answers.push({ ...q, selected: null });
+    });
+
+    window._placementAnswers = answers;
+    window._placementQuestions = questions;
+},
 
                     // تمييز الزر المختار
                     const container = document.getElementById('placementQuestions');
