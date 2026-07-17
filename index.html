@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>منصة التعلم</title>
-  <link rel="stylesheet" href="css/style.css">
+  <!-- المسار مباشر للمجلد الرئيسي (بدون مجلد css) -->
+  <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
@@ -12,8 +13,8 @@
     <main id="screen-root"></main>
   </div>
 
-  <!-- تحميل data.js أولاً -->
-  <script src="js/data.js"></script>
+  <!-- تحميل data.js من الجذر مباشرة (بدون مجلد js) -->
+  <script src="data.js"></script>
   
   <!-- ثم كل شيء آخر في ملف واحد لتجنب مشاكل التحميل -->
   <script>
@@ -267,7 +268,7 @@
       if (window.APP_DATA && typeof window.APP_DATA === "object") {
         App.navigateTo("home");
       } else {
-        document.getElementById("screen-root").innerHTML = "<p style='color:#F44336;text-align:center;padding:40px;'>خطأ: بيانات التطبيق غير محملة.<br>تأكد من وجود ملف js/data.js</p>";
+        document.getElementById("screen-root").innerHTML = "<p style='color:#F44336;text-align:center;padding:40px;'>خطأ: بيانات التطبيق غير محمّلة.<br>تأكد من وجود ملف data.js في نفس المجلد.</p>";
       }
     });
   </script>
