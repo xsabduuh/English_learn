@@ -20,7 +20,7 @@
             // ============================================================
             // 1. الثوابت والمفاتيح
             // ============================================================
-            const STORAGE = {
+            const STORAGE_KEYS = {
                 USER_LEVEL: 'eng_user_level',
                 PLACEMENT_DONE: 'eng_placement_done',
                 REVIEW_ITEMS: 'eng_review_items',
@@ -58,7 +58,6 @@
                 levels.forEach(level => {
                     const data = window.APP_DATA[level];
                     if (!data) return;
-                    // كلمات
                     (data.words || []).forEach(w => {
                         items[w.id] = {
                             id: w.id,
@@ -72,7 +71,6 @@
                             interval: 0
                         };
                     });
-                    // قواعد
                     (data.grammar || []).forEach(g => {
                         items[g.id] = {
                             id: g.id,
@@ -137,14 +135,13 @@
             // ============================================================
             const ReviewEngine = {
                 getItems: function() {
-                    return storageGet(STORAGE.REVIEW_ITEMS, getDefaultReviewItems());
+                    return storageGet(STORAGE_KEYS.REVIEW_ITEMS, getDefaultReviewItems());
                 },
 
                 saveItems: function(items) {
-                    storageSet(STORAGE.REVIEW_ITEMS, items);
+                    storageSet(STORAGE_KEYS.REVIEW_ITEMS, items);
                 },
 
-                // جلب العناصر المستحقة للمراجعة
                 getDueItems: function(limit = 20) {
                     const items = this.getItems();
                     const now = Date.now();
@@ -155,12 +152,10 @@
                             due.push(item);
                         }
                     }
-                    // ترتيب حسب الأولوية (الأكثر خطأ أولاً)
                     due.sort((a, b) => (b.wrongCount - a.wrongCount) || (a.nextReview || 0) - (b.nextReview || 0));
                     return due.slice(0, limit);
                 },
 
-                // تحديث عنصر بعد الإجابة
                 updateItem: function(id, isCorrect) {
                     const items = this.getItems();
                     const item = items[id];
@@ -172,7 +167,6 @@
                     if (isCorrect) {
                         item.correctCount += 1;
                         item.wrongCount = Math.max(0, item.wrongCount - 1);
-                        // خوارزمية SM-2 مبسطة
                         if (item.correctCount >= 3) {
                             item.interval = item.interval === 0 ? 1 : Math.min(item.interval * 2, 30);
                         } else {
@@ -181,24 +175,18 @@
                     } else {
                         item.wrongCount += 1;
                         item.correctCount = 0;
-                        item.interval = 1; // تعاد بعد يوم
-                        // تسجيل الخطأ في صفحة الأخطاء
+                        item.interval = 1;
                         MistakesEngine.addMistake(id, item.type, item.level);
                     }
 
-                    // حساب موعد المراجعة القادم (بالأيام)
                     const days = Math.max(1, item.interval);
                     item.nextReview = now + (days * 24 * 60 * 60 * 1000);
 
                     this.saveItems(items);
-
-                    // تحديث الإحصائيات
                     StatisticsEngine.updateStats(id, isCorrect);
-
                     return item;
                 },
 
-                // الحصول على عدد المراجعات المستحقة اليوم
                 getDueCount: function() {
                     return this.getDueItems(999).length;
                 }
@@ -209,11 +197,11 @@
             // ============================================================
             const MistakesEngine = {
                 getMistakes: function() {
-                    return storageGet(STORAGE.MISTAKES, []);
+                    return storageGet(STORAGE_KEYS.MISTAKES, []);
                 },
 
                 saveMistakes: function(mistakes) {
-                    storageSet(STORAGE.MISTAKES, mistakes);
+                    storageSet(STORAGE_KEYS.MISTAKES, mistakes);
                 },
 
                 addMistake: function(itemId, type, level) {
@@ -223,7 +211,6 @@
                         existing.count += 1;
                         existing.lastDate = new Date().toISOString();
                     } else {
-                        // الحصول على التفاصيل من البيانات
                         let details = {};
                         const data = window.APP_DATA[level];
                         if (data) {
@@ -266,11 +253,11 @@
             // ============================================================
             const StatisticsEngine = {
                 getStats: function() {
-                    return storageGet(STORAGE.STATISTICS, getDefaultStatistics());
+                    return storageGet(STORAGE_KEYS.STATISTICS, getDefaultStatistics());
                 },
 
                 saveStats: function(stats) {
-                    storageSet(STORAGE.STATISTICS, stats);
+                    storageSet(STORAGE_KEYS.STATISTICS, stats);
                 },
 
                 updateStats: function(itemId, isCorrect) {
@@ -281,7 +268,7 @@
                         stats.wrongAnswers += 1;
                     }
                     stats.totalExercises += 1;
-                    stats.averageScore = Math.round((stats.correctAnswers / stats.totalExercises) * 100);
+                    stats.averageScore = stats.totalExercises > 0 ? Math.round((stats.correctAnswers / stats.totalExercises) * 100) : 0;
                     this.saveStats(stats);
                 },
 
@@ -306,7 +293,7 @@
             // ============================================================
             const DailyGoalsEngine = {
                 getGoals: function() {
-                    let goals = storageGet(STORAGE.DAILY_GOALS, null);
+                    let goals = storageGet(STORAGE_KEYS.DAILY_GOALS, null);
                     const today = new Date().toDateString();
                     if (!goals || goals.date !== today) {
                         goals = getDefaultDailyGoals();
@@ -317,29 +304,18 @@
                 },
 
                 saveGoals: function(goals) {
-                    storageSet(STORAGE.DAILY_GOALS, goals);
+                    storageSet(STORAGE_KEYS.DAILY_GOALS, goals);
                 },
 
                 updateProgress: function(type) {
                     const goals = this.getGoals();
                     switch (type) {
-                        case 'word_learned':
-                            goals.wordsLearned += 1;
-                            break;
-                        case 'word_reviewed':
-                            goals.wordsReviewed += 1;
-                            break;
-                        case 'grammar_reviewed':
-                            goals.grammarReviewed += 1;
-                            break;
-                        case 'story_read':
-                            goals.storiesRead += 1;
-                            break;
-                        case 'exercise':
-                            goals.exercisesDone += 1;
-                            break;
+                        case 'word_learned': goals.wordsLearned += 1; break;
+                        case 'word_reviewed': goals.wordsReviewed += 1; break;
+                        case 'grammar_reviewed': goals.grammarReviewed += 1; break;
+                        case 'story_read': goals.storiesRead += 1; break;
+                        case 'exercise': goals.exercisesDone += 1; break;
                     }
-                    // التحقق من اكتمال الأهداف
                     if (goals.wordsLearned >= goals.targetWords &&
                         goals.wordsReviewed + goals.grammarReviewed >= goals.targetReviews) {
                         goals.completed = true;
@@ -365,11 +341,11 @@
             // ============================================================
             const AchievementsEngine = {
                 getAchievements: function() {
-                    return storageGet(STORAGE.ACHIEVEMENTS, getDefaultAchievements());
+                    return storageGet(STORAGE_KEYS.ACHIEVEMENTS, getDefaultAchievements());
                 },
 
                 saveAchievements: function(ach) {
-                    storageSet(STORAGE.ACHIEVEMENTS, ach);
+                    storageSet(STORAGE_KEYS.ACHIEVEMENTS, ach);
                 },
 
                 update: function() {
@@ -377,29 +353,24 @@
                     const stats = StatisticsEngine.getStats();
                     const reviewItems = ReviewEngine.getItems();
 
-                    // حساب الكلمات المتقنة (من مراجعة 3+ صحيحة)
                     let mastered = 0;
                     for (let id in reviewItems) {
                         if (reviewItems[id].correctCount >= 3) mastered++;
                     }
                     ach.wordsMastered = mastered;
 
-                    // حساب القواعد المتقنة
                     let grammarMastered = 0;
                     for (let id in reviewItems) {
                         if (reviewItems[id].type === 'grammar' && reviewItems[id].correctCount >= 3) grammarMastered++;
                     }
                     ach.grammarMastered = grammarMastered;
 
-                    // حساب عدد القصص المقروءة من localStorage
                     const readStories = storageGet('eng_read_stories', []);
                     ach.storiesCompleted = readStories.length;
 
-                    // تحديث المستوى (كل 100 XP = مستوى)
                     ach.xp = storageGet('eng_xp', 0);
                     ach.level = Math.floor(ach.xp / 100) + 1;
 
-                    // تحديث السلسلة اليومية
                     const goals = DailyGoalsEngine.getGoals();
                     if (goals.completed) {
                         const streak = storageGet('eng_streak', 0);
@@ -417,16 +388,15 @@
             // ============================================================
             const PlacementEngine = {
                 isDone: function() {
-                    return storageGet(STORAGE.PLACEMENT_DONE, false);
+                    return storageGet(STORAGE_KEYS.PLACEMENT_DONE, false);
                 },
 
                 setDone: function(level) {
-                    storageSet(STORAGE.PLACEMENT_DONE, true);
-                    storageSet(STORAGE.USER_LEVEL, level);
+                    storageSet(STORAGE_KEYS.PLACEMENT_DONE, true);
+                    storageSet(STORAGE_KEYS.USER_LEVEL, level);
                 },
 
                 generateTest: function() {
-                    // نأخذ 20 سؤالاً من جميع المستويات
                     const levels = ['A1', 'A2', 'B1', 'B2'];
                     const questions = [];
                     levels.forEach(level => {
@@ -436,7 +406,6 @@
                             questions.push(...qs);
                         }
                     });
-                    // خلط واختيار 20
                     const shuffled = questions.sort(() => Math.random() - 0.5);
                     return shuffled.slice(0, 20);
                 },
@@ -458,10 +427,9 @@
             };
 
             // ============================================================
-            // 10. محرك التمارين (Exercise Engine) - أنواع متعددة
+            // 10. محرك التمارين (Exercise Engine)
             // ============================================================
             const ExerciseEngine = {
-                // توليد تمارين من كلمات/قواعد
                 generateExercises: function(items, count = 10) {
                     const exercises = [];
                     const shuffled = items.sort(() => Math.random() - 0.5);
@@ -470,7 +438,10 @@
                     selected.forEach((item, index) => {
                         const type = this.getRandomExerciseType();
                         const exercise = this.createExercise(item, type);
-                        if (exercise) exercises.push(exercise);
+                        if (exercise) {
+                            exercise._itemId = item.id;
+                            exercises.push(exercise);
+                        }
                     });
 
                     return exercises;
@@ -603,7 +574,6 @@
                     return stories.find(s => s.id === storyId) || null;
                 },
 
-                // تسجيل قراءة قصة
                 markAsRead: function(storyId) {
                     const read = storageGet('eng_read_stories', []);
                     if (!read.includes(storyId)) {
@@ -614,7 +584,6 @@
                     }
                 },
 
-                // تفسير كلمة (معنى + نطق)
                 getWordMeaning: function(word, level) {
                     const data = window.APP_DATA[level];
                     if (!data) return null;
@@ -631,7 +600,7 @@
             };
 
             // ============================================================
-            // 12. واجهة المستخدم (UI) - إعادة تصميم كاملة
+            // 12. واجهة المستخدم (UI)
             // ============================================================
             const UI = {
                 root: document.getElementById('screen-root'),
@@ -641,23 +610,20 @@
                 currentExercises: [],
                 currentStory: null,
 
-                // ===== الشاشة الرئيسية =====
                 renderHome: function() {
-                    const level = storageGet(STORAGE.USER_LEVEL, 'A1');
+                    const level = storageGet(STORAGE_KEYS.USER_LEVEL, 'A1');
                     const streak = storageGet('eng_streak', 0);
                     const xp = storageGet('eng_xp', 0);
                     const ach = AchievementsEngine.getAchievements();
                     const goals = DailyGoalsEngine.getProgress();
                     const dueCount = ReviewEngine.getDueCount();
-                    const lastSession = storageGet(STORAGE.LAST_SESSION, null);
+                    const lastSession = storageGet(STORAGE_KEYS.LAST_SESSION, null);
                     const mistakes = MistakesEngine.getMistakes();
 
-                    // اقتراح الدرس التالي
                     const nextLesson = this.getNextLesson(level);
 
                     let html = `
                         <div class="home-container">
-                            <!-- شريط المستوى والسلسلة -->
                             <div class="top-bar">
                                 <div class="level-badge">
                                     <span class="material-symbols-outlined">account_circle</span>
@@ -673,13 +639,11 @@
                                 </div>
                             </div>
 
-                            <!-- الترحيب -->
                             <div class="welcome-section">
-                                <h1>مرحباً بك 👋</h1>
+                                <h1>مرحباً بك</h1>
                                 <p>${dueCount > 0 ? `لديك ${dueCount} عناصر للمراجعة اليوم` : 'أنت في طريقك لإتقان الإنجليزية!'}</p>
                             </div>
 
-                            <!-- بطاقة الاستمرار -->
                             <div class="continue-card">
                                 <div class="continue-header">
                                     <span class="material-symbols-outlined">play_arrow</span>
@@ -687,7 +651,7 @@
                                 </div>
                                 ${lastSession ? `
                                     <div class="continue-detail">
-                                        <span>آخر درس: ${lastSession.level} - ${lastSession.type || 'تمرين'}</span>
+                                        <span>آخر درس: ${lastSession.level || ''}</span>
                                         <span class="continue-time">${lastSession.date ? new Date(lastSession.date).toLocaleDateString() : ''}</span>
                                     </div>
                                 ` : `
@@ -701,7 +665,6 @@
                                 </button>
                             </div>
 
-                            <!-- الأهداف اليومية -->
                             <div class="daily-goal">
                                 <div class="daily-header">
                                     <span class="material-symbols-outlined">today</span>
@@ -712,13 +675,12 @@
                                     <div class="daily-bar-fill" style="width: ${goals.percent}%;"></div>
                                 </div>
                                 <div class="daily-details">
-                                    <span>📖 ${goals.wordsLearned}/${goals.targetWords} كلمات</span>
-                                    <span>🔄 ${goals.wordsReviewed + goals.grammarReviewed}/${goals.targetReviews} مراجعات</span>
+                                    <span>${goals.wordsLearned}/${goals.targetWords} كلمات</span>
+                                    <span>${goals.wordsReviewed + goals.grammarReviewed}/${goals.targetReviews} مراجعات</span>
                                 </div>
-                                ${goals.completed ? '<div class="daily-complete">🎉 أحسنت! أكملت أهداف اليوم</div>' : ''}
+                                ${goals.completed ? '<div class="daily-complete">أحسنت! أكملت أهداف اليوم</div>' : ''}
                             </div>
 
-                            <!-- المراجعة المستحقة -->
                             ${dueCount > 0 ? `
                                 <div class="review-alert" onclick="App.startReview()">
                                     <span class="material-symbols-outlined">sync</span>
@@ -727,7 +689,6 @@
                                 </div>
                             ` : ''}
 
-                            <!-- أخطائي -->
                             ${mistakes.length > 0 ? `
                                 <div class="mistakes-alert" onclick="App.goToMistakes()">
                                     <span class="material-symbols-outlined">error</span>
@@ -736,7 +697,6 @@
                                 </div>
                             ` : ''}
 
-                            <!-- الاقتراح الذكي -->
                             <div class="suggestion-card">
                                 <div class="suggestion-header">
                                     <span class="material-symbols-outlined">lightbulb</span>
@@ -749,7 +709,6 @@
                                 </button>
                             </div>
 
-                            <!-- الروابط السريعة -->
                             <div class="quick-links">
                                 <div class="quick-link" onclick="App.goToStatistics()">
                                     <span class="material-symbols-outlined">analytics</span>
@@ -779,7 +738,6 @@
                     const data = window.APP_DATA[level];
                     if (!data) return 'ابدأ بتعلم كلمات جديدة';
 
-                    // نبحث عن كلمات لم تتقن بعد
                     const reviewItems = ReviewEngine.getItems();
                     const mastered = new Set();
                     for (let id in reviewItems) {
@@ -799,16 +757,13 @@
                     return 'راجع ما تعلمته أو انتقل لمستوى أعلى';
                 },
 
-                // ===== بدء التعلم (جلسة تفاعلية) =====
                 renderLearningSession: function() {
-                    const level = storageGet(STORAGE.USER_LEVEL, 'A1');
+                    const level = storageGet(STORAGE_KEYS.USER_LEVEL, 'A1');
                     const dueItems = ReviewEngine.getDueItems(5);
 
-                    // إذا كان هناك مراجعات مستحقة، نبدأ بها
                     if (dueItems.length > 0) {
                         this.currentExercises = ExerciseEngine.generateExercises(dueItems, Math.min(5, dueItems.length));
                     } else {
-                        // خلاف ذلك، نتعلم كلمات جديدة
                         const data = window.APP_DATA[level];
                         if (!data) {
                             this.renderHome();
@@ -948,7 +903,7 @@
                             <div class="complete-icon">
                                 <span class="material-symbols-outlined" style="font-size:4rem;color:#F5B041;">emoji_events</span>
                             </div>
-                            <h2>أحسنت! 🎉</h2>
+                            <h2>أحسنت!</h2>
                             <p>أنهيت هذه الجلسة بنجاح</p>
                             <div class="complete-stats">
                                 <div><span>نقاط XP</span> <span>+${Math.floor(Math.random() * 10) + 5}</span></div>
@@ -969,7 +924,6 @@
                     this.currentScreen = 'complete';
                 },
 
-                // ===== صفحة الأخطاء =====
                 renderMistakes: function() {
                     const mistakes = MistakesEngine.getTopMistakes(20);
 
@@ -999,7 +953,7 @@
                             html += `
                                 <div class="mistake-item">
                                     <div class="mistake-header">
-                                        <span class="mistake-type">${m.type === 'word' ? '📖' : '📐'} ${m.type}</span>
+                                        <span class="mistake-type">${m.type === 'word' ? 'كلمة' : 'قاعدة'}</span>
                                         <span class="mistake-count">${m.count} مرات</span>
                                     </div>
                                     <div class="mistake-detail">
@@ -1021,7 +975,6 @@
                     this.currentScreen = 'mistakes';
                 },
 
-                // ===== صفحة الإحصائيات =====
                 renderStatistics: function() {
                     const stats = StatisticsEngine.getStats();
                     const ach = AchievementsEngine.getAchievements();
@@ -1091,7 +1044,6 @@
                     this.currentScreen = 'statistics';
                 },
 
-                // ===== صفحة الإنجازات =====
                 renderAchievements: function() {
                     const ach = AchievementsEngine.getAchievements();
 
@@ -1149,9 +1101,8 @@
                     this.currentScreen = 'achievements';
                 },
 
-                // ===== صفحة القصص =====
                 renderStories: function() {
-                    const level = storageGet(STORAGE.USER_LEVEL, 'A1');
+                    const level = storageGet(STORAGE_KEYS.USER_LEVEL, 'A1');
                     const stories = StoryReader.getStories(level);
 
                     let html = `
@@ -1191,7 +1142,6 @@
                     this.currentScreen = 'stories';
                 },
 
-                // ===== قارئ القصة التفاعلي =====
                 renderStoryReader: function(level, storyId) {
                     const story = StoryReader.getStory(level, storyId);
                     if (!story) {
@@ -1234,7 +1184,6 @@
             // 13. التطبيق الرئيسي (App Controller)
             // ============================================================
             window.App = {
-                // ===== التنقل =====
                 goHome: function() {
                     AchievementsEngine.update();
                     UI.renderHome();
@@ -1260,11 +1209,9 @@
                     UI.renderStoryReader(level, storyId);
                 },
 
-                // ===== بدء التعلم =====
                 startLearning: function() {
-                    // تسجيل الجلسة
-                    const level = storageGet(STORAGE.USER_LEVEL, 'A1');
-                    storageSet(STORAGE.LAST_SESSION, {
+                    const level = storageGet(STORAGE_KEYS.USER_LEVEL, 'A1');
+                    storageSet(STORAGE_KEYS.LAST_SESSION, {
                         level: level,
                         type: 'lesson',
                         date: new Date().toISOString()
@@ -1276,7 +1223,6 @@
                     UI.renderLearningSession();
                 },
 
-                // ===== التعامل مع التمارين =====
                 checkExercise: function(userAnswer) {
                     const exercise = UI.currentExercises[UI.currentExerciseIndex];
                     if (!exercise) return;
@@ -1284,18 +1230,15 @@
                     const isCorrect = ExerciseEngine.checkAnswer(exercise, userAnswer);
                     const itemId = exercise._itemId || 'unknown';
 
-                    // تحديث نظام المراجعة
                     const reviewItems = ReviewEngine.getItems();
                     let item = reviewItems[itemId];
                     if (item) {
                         ReviewEngine.updateItem(itemId, isCorrect);
                     }
 
-                    // تحديث الأهداف اليومية
                     if (isCorrect) {
                         DailyGoalsEngine.updateProgress('word_learned');
                         DailyGoalsEngine.updateProgress('exercise');
-                        // منح XP
                         let xp = storageGet('eng_xp', 0);
                         xp += 10;
                         storageSet('eng_xp', xp);
@@ -1303,10 +1246,8 @@
                         DailyGoalsEngine.updateProgress('exercise');
                     }
 
-                    // عرض التغذية الراجعة
                     this.showFeedback(isCorrect);
 
-                    // الانتقال للتمرين التالي بعد تأخير
                     setTimeout(() => {
                         UI.currentExerciseIndex++;
                         UI.renderExercise();
@@ -1328,13 +1269,11 @@
                     }, 1000);
                 },
 
-                // ===== مراجعة خطأ معين =====
                 reviewMistake: function(itemId) {
                     const mistakes = MistakesEngine.getMistakes();
                     const mistake = mistakes.find(m => m.itemId === itemId);
                     if (!mistake) return;
 
-                    // نبحث عن العنصر في البيانات
                     const data = window.APP_DATA[mistake.level];
                     if (!data) return;
 
@@ -1347,7 +1286,6 @@
 
                     if (!item) return;
 
-                    // نضعه في جلسة تعلم
                     const exercise = ExerciseEngine.createExercise({
                         id: itemId,
                         type: mistake.type,
@@ -1361,7 +1299,6 @@
                     }
                 },
 
-                // ===== القصص =====
                 showWordMeaning: function(word, level) {
                     const meaning = StoryReader.getWordMeaning(word, level);
                     const tooltip = document.getElementById('storyTooltip');
@@ -1390,7 +1327,6 @@
                     tooltip.style.padding = '16px';
                     tooltip.style.zIndex = '999';
 
-                    // إغلاق عند النقر خارجها
                     setTimeout(() => {
                         document.addEventListener('click', function closeTooltip(e) {
                             if (!tooltip.contains(e.target) && e.target.className !== 'story-word') {
@@ -1406,7 +1342,6 @@
                     this.goToStories();
                 },
 
-                // ===== النطق =====
                 speak: function(text) {
                     if ('speechSynthesis' in window) {
                         const utterance = new SpeechSynthesisUtterance(text);
@@ -1418,94 +1353,76 @@
                     }
                 },
 
-                // ===== تهيئة التطبيق =====
-                init: function() {
-                    // التحقق من البيانات
-                    if (!window.APP_DATA) {
-                        document.getElementById('screen-root').innerHTML = `
-                            <div style="padding:40px;color:red;text-align:center;">
-                                خطأ: ملف البيانات غير موجود
+                // ============================================================
+                // اختبار تحديد المستوى (المعدل)
+                // ============================================================
+                runPlacementTest: function() {
+                    const questions = PlacementEngine.generateTest();
+                    let html = `
+                        <div class="page-container">
+                            <div class="page-header">
+                                <h2>اختبار تحديد المستوى</h2>
+                                <span class="material-symbols-outlined" style="color:#F5B041;">quiz</span>
                             </div>
+                            <p style="color:#AAAAAA;margin-bottom:16px;">أجب عن الأسئلة التالية لتحديد مستواك المناسب</p>
+                            <div id="placementQuestions"></div>
+                            <button class="btn-primary" onclick="App.submitPlacement()" id="placementSubmit">
+                                <span class="material-symbols-outlined">check</span> إنهاء الاختبار
+                            </button>
+                        </div>
+                    `;
+                    document.getElementById('screen-root').innerHTML = html;
+
+                    const container = document.getElementById('placementQuestions');
+                    const answers = [];
+
+                    questions.forEach((q, i) => {
+                        const div = document.createElement('div');
+                        div.className = 'placement-question';
+                        div.innerHTML = `
+                            <div class="placement-q">${i+1}. ${q.question}</div>
+                            <div class="placement-options" id="options_${i}"></div>
+                            <input type="hidden" id="placement_${i}" value="">
                         `;
-                        return;
-                    }
+                        container.appendChild(div);
 
-                    // اختبار تحديد المستوى
-                    if (!PlacementEngine.isDone()) {
-                        this.runPlacementTest();
-                        return;
-                    }
+                        const optionsContainer = document.getElementById(`options_${i}`);
+                        q.options.forEach(opt => {
+                            const btn = document.createElement('button');
+                            btn.className = 'option-btn';
+                            btn.textContent = opt;
+                            btn.dataset.value = opt;
+                            btn.addEventListener('click', function() {
+                                App.selectPlacementAnswer(i, opt);
+                            });
+                            optionsContainer.appendChild(btn);
+                        });
 
-                    // تحديث الإنجازات
-                    AchievementsEngine.update();
+                        answers.push({ ...q, selected: null });
+                    });
 
-                    // عرض الصفحة الرئيسية
-                    this.goHome();
+                    window._placementAnswers = answers;
+                    window._placementQuestions = questions;
                 },
 
-                // ===== اختبار تحديد المستوى =====
-                runPlacementTest: function() {
-    const questions = PlacementEngine.generateTest();
-    let html = `
-        <div class="page-container">
-            <div class="page-header">
-                <h2>اختبار تحديد المستوى</h2>
-                <span class="material-symbols-outlined" style="color:#F5B041;">quiz</span>
-            </div>
-            <p style="color:#AAAAAA;margin-bottom:16px;">أجب عن الأسئلة التالية لتحديد مستواك المناسب</p>
-            <div id="placementQuestions"></div>
-            <button class="btn-primary" onclick="App.submitPlacement()" id="placementSubmit">
-                <span class="material-symbols-outlined">check</span> إنهاء الاختبار
-            </button>
-        </div>
-    `;
-    document.getElementById('screen-root').innerHTML = html;
+                selectPlacementAnswer: function(index, value) {
+                    const answers = window._placementAnswers;
+                    if (!answers) return;
+                    answers[index].selected = value;
 
-    const container = document.getElementById('placementQuestions');
-    const answers = [];
-
-    questions.forEach((q, i) => {
-        const div = document.createElement('div');
-        div.className = 'placement-question';
-        div.innerHTML = `
-            <div class="placement-q">${i+1}. ${q.question}</div>
-            <div class="placement-options" id="options_${i}">
-                <!-- سيتم إضافة الأزرار برمجياً -->
-            </div>
-            <input type="hidden" id="placement_${i}" value="">
-        `;
-        container.appendChild(div);
-
-        // إنشاء الأزرار برمجياً وربطها بالحدث
-        const optionsContainer = document.getElementById(`options_${i}`);
-        q.options.forEach(opt => {
-            const btn = document.createElement('button');
-            btn.className = 'option-btn';
-            btn.textContent = opt;
-            btn.dataset.value = opt;
-            btn.addEventListener('click', function() {
-                App.selectPlacementAnswer(i, opt);
-            });
-            optionsContainer.appendChild(btn);
-        });
-
-        answers.push({ ...q, selected: null });
-    });
-
-    window._placementAnswers = answers;
-    window._placementQuestions = questions;
-},
-
-                    // تمييز الزر المختار
                     const container = document.getElementById('placementQuestions');
                     const questionDiv = container.children[index];
                     const buttons = questionDiv.querySelectorAll('.option-btn');
                     buttons.forEach(btn => {
-                        btn.style.borderColor = btn.textContent === value ? '#F5B041' : '#2A2A2A';
-                        btn.style.background = btn.textContent === value ? 'rgba(245, 176, 65, 0.2)' : '#1E1E1E';
+                        if (btn.textContent === value) {
+                            btn.style.borderColor = '#F5B041';
+                            btn.style.background = 'rgba(245, 176, 65, 0.2)';
+                        } else {
+                            btn.style.borderColor = '#2A2A2A';
+                            btn.style.background = '#1E1E1E';
+                        }
                     });
 
-                    // تحديث الحقل المخفي
                     document.getElementById(`placement_${index}`).value = value;
                 },
 
@@ -1513,7 +1430,6 @@
                     const answers = window._placementAnswers;
                     if (!answers) return;
 
-                    // التحقق من الإجابة على جميع الأسئلة
                     const unanswered = answers.filter(a => !a.selected);
                     if (unanswered.length > 0) {
                         alert(`يرجى الإجابة على جميع الأسئلة (${unanswered.length} متبقية)`);
@@ -1523,7 +1439,6 @@
                     const result = PlacementEngine.evaluate(answers);
                     PlacementEngine.setDone(result.level);
 
-                    // عرض النتيجة
                     let html = `
                         <div class="page-container">
                             <div class="page-header">
@@ -1543,8 +1458,26 @@
                     `;
                     document.getElementById('screen-root').innerHTML = html;
 
-                    // تحديث الإحصائيات
                     StatisticsEngine.updateLevelScore(result.level, result.percentage);
+                },
+
+                init: function() {
+                    if (!window.APP_DATA) {
+                        document.getElementById('screen-root').innerHTML = `
+                            <div style="padding:40px;color:red;text-align:center;">
+                                خطأ: ملف البيانات غير موجود
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    if (!PlacementEngine.isDone()) {
+                        this.runPlacementTest();
+                        return;
+                    }
+
+                    AchievementsEngine.update();
+                    this.goHome();
                 }
             };
 
