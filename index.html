@@ -2,275 +2,572 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>منصة التعلم</title>
-  <!-- المسار مباشر للمجلد الرئيسي (بدون مجلد css) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>تعلّم إنجليزي</title>
+  
+  <!-- الأيقونات الاحترافية (Material Symbols) -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+  <!-- التصميم -->
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 <body>
+
   <div id="app">
-    <main id="screen-root"></main>
+    <!-- سيتم حقن الشاشات هنا بواسطة JavaScript -->
+    <div id="screen-root"></div>
   </div>
 
-  <!-- تحميل data.js من الجذر مباشرة (بدون مجلد js) -->
+  <!-- تحميل البيانات القديمة أولاً -->
   <script src="data.js"></script>
-  
-  <!-- ثم كل شيء آخر في ملف واحد لتجنب مشاكل التحميل -->
-  <script>
-    // ===== ENGINE (مبسط) =====
-    const Engine = {
-      getLevel: function(levelId) {
-        return window.APP_DATA && window.APP_DATA[levelId] ? window.APP_DATA[levelId] : null;
-      },
-      getWords: function(levelId) {
-        const level = this.getLevel(levelId);
-        return level && level.words ? level.words : [];
-      },
-      getQuizzes: function(levelId) {
-        const level = this.getLevel(levelId);
-        return level && level.quizzes ? level.quizzes : [];
-      },
-      getAllLevelsStats: function() {
-        const stats = {};
-        (window.APP_LEVELS || ["A1","A2","B1","B2"]).forEach(function(lv) {
-          const level = window.APP_DATA && window.APP_DATA[lv];
-          stats[lv] = {
-            words: level && level.words ? level.words.length : 0,
-            quizzes: level && level.quizzes ? level.quizzes.length : 0
-          };
-        });
-        return stats;
-      },
-      evaluateLevelQuiz: function(levelId, userAnswers) {
-        const quizzes = this.getQuizzes(levelId);
-        let correct = 0;
-        quizzes.forEach(function(q, i) {
-          if (userAnswers[i] && userAnswers[i] === q.answer) correct++;
-        });
-        const total = quizzes.length;
-        const percentage = total > 0 ? Math.round((correct/total)*100) : 0;
-        return { correct: correct, total: total, percentage: percentage, passed: percentage >= 60 };
-      },
-      recordQuizResult: function(levelId, result) {
-        try {
-          const key = "progress_" + levelId;
-          localStorage.setItem(key, JSON.stringify({
-            score: result.percentage,
-            date: new Date().toISOString()
-          }));
-        } catch(e) {}
-      }
-    };
 
-    // ===== UI (مبسط ومختبر بالكامل) =====
-    const UI = {
-      renderHome: function() {
-        const root = document.getElementById("screen-root");
-        if (!root) return;
-        const levels = window.APP_LEVELS || ["A1","A2","B1","B2"];
-        const stats = Engine.getAllLevelsStats();
-        const labels = window.APP_LEVEL_LABELS || {};
-        let html = `
-          <div style="padding:20px 0;">
-            <h1 style="color:#F5B041;font-size:1.8rem;text-align:center;">منصة التعلم</h1>
-            <p style="color:#AAAAAA;text-align:center;margin-bottom:20px;">اختر مستواك</p>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        `;
-        levels.forEach(function(lv) {
-          const s = stats[lv] || { words: 0 };
-          html += `
-            <div onclick="App.navigateTo('level',{levelId:'${lv}'})" 
-                 style="background:#1E1E1E;padding:20px;border-radius:16px;border:1px solid #2A2A2A;text-align:center;cursor:pointer;">
-              <div style="color:#F5B041;font-size:1.8rem;font-weight:900;">${lv}</div>
-              <div style="color:#AAAAAA;font-size:0.8rem;">${labels[lv] || lv}</div>
-              <div style="color:#888888;font-size:0.7rem;margin-top:6px;">${s.words} كلمة</div>
+  <!-- المحرك الجديد (كل المنطق التفاعلي) -->
+  <script>
+    (function() {
+      'use strict';
+
+      // =============================================
+      // 1. إدارة الحالة والتخزين (State & Storage)
+      // =============================================
+      const STORAGE_KEY = 'eng_active_v1';
+
+      function getDefaultState() {
+        return {
+          xp: 0,
+          level: 'A1',
+          streak: 0,
+          lastDate: null,
+          dailyGoal: 0,
+          currentWordIndex: 0,
+          masteredWords: [],
+          weakWords: [],
+          wordAttempts: {}
+        };
+      }
+
+      function loadState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            // دمج مع القيم الافتراضية لتجنب الأعطال
+            const defaults = getDefaultState();
+            for (let key in defaults) {
+              if (parsed[key] === undefined) parsed[key] = defaults[key];
+            }
+            return parsed;
+          }
+        } catch (e) { console.warn('Failed to load state', e); }
+        return getDefaultState();
+      }
+
+      function saveState(state) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        } catch (e) { console.warn('Failed to save state', e); }
+      }
+
+      // =============================================
+      // 2. محرك اللعبة (Game Engine)
+      // =============================================
+      const Game = {
+        state: loadState(),
+        currentLevelWords: [],
+        currentChallengeIndex: 0,
+        currentChallenges: [],
+        isAnswering: false,
+
+        // تهيئة المستوى الحالي
+        initLevel: function(levelId) {
+          if (!window.APP_DATA || !window.APP_DATA[levelId]) {
+            console.error('Level not found:', levelId);
+            return false;
+          }
+          this.state.level = levelId;
+          const levelData = window.APP_DATA[levelId];
+          // نأخذ الكلمات فقط كمصدر للتحديات (نحولها إلى تحديات ديناميكية)
+          this.currentLevelWords = levelData.words || [];
+          if (this.currentLevelWords.length === 0) {
+            console.warn('No words in this level:', levelId);
+            return false;
+          }
+          // نبدأ من أول كلمة لم يتقنها المستخدم بعد
+          this.state.currentWordIndex = 0;
+          this.generateChallenges();
+          saveState(this.state);
+          return true;
+        },
+
+        // توليد تحديات من الكلمات (نحول القراءة إلى تفاعل)
+        generateChallenges: function() {
+          const words = this.currentLevelWords;
+          const challenges = [];
+          // نأخذ أول 5 كلمات فقط كدفعة (micro-challenge)
+          const start = this.state.currentWordIndex;
+          const end = Math.min(start + 5, words.length);
+          
+          for (let i = start; i < end; i++) {
+            const word = words[i];
+            if (!word) continue;
+            
+            // التحدي 1: ترجمة (انظر إنجليزي -> اختر عربي)
+            challenges.push({
+              type: 'translate',
+              word: word,
+              correct: word.translation,
+              options: this.generateOptions(word.translation, 'translation')
+            });
+
+            // التحدي 2: إكمال الجملة (إذا وجد مثال)
+            if (word.example) {
+              const example = word.example;
+              // نستخرج الكلمة من الجملة ونضعها مكانها
+              const parts = example.split(word.word);
+              if (parts.length > 1) {
+                const blankSentence = parts[0] + '______' + parts.slice(1).join('');
+                challenges.push({
+                  type: 'fill',
+                  word: word,
+                  sentence: blankSentence,
+                  correct: word.word,
+                  options: this.generateOptions(word.word, 'word')
+                });
+              }
+            }
+          }
+
+          // خلط التحديات قليلاً
+          this.currentChallenges = challenges.sort(() => Math.random() - 0.5);
+          this.currentChallengeIndex = 0;
+        },
+
+        // توليد خيارات عشوائية (3 خيارات خاطئة + 1 صحيح)
+        generateOptions: function(correctValue, field) {
+          const pool = this.currentLevelWords;
+          const options = new Set();
+          options.add(correctValue);
+          
+          // نبحث عن قيم مختلفة من الكلمات الأخرى
+          for (let i = 0; i < pool.length && options.size < 4; i++) {
+            const w = pool[i];
+            if (!w) continue;
+            let candidate = null;
+            if (field === 'translation' && w.translation) candidate = w.translation;
+            else if (field === 'word' && w.word) candidate = w.word;
+            
+            if (candidate && candidate !== correctValue && !options.has(candidate)) {
+              options.add(candidate);
+            }
+          }
+          
+          // إذا لم نجد 4 خيارات، نضيف قيماً وهمية
+          const fallbacks = ['??', '---', '...', '???'];
+          let fallbackIndex = 0;
+          while (options.size < 4) {
+            options.add(fallbacks[fallbackIndex % fallbacks.length] + Math.random());
+            fallbackIndex++;
+          }
+          
+          // تحويل إلى مصفوفة وخلطها
+          return Array.from(options).sort(() => Math.random() - 0.5);
+        },
+
+        // الحصول على التحدي الحالي
+        getCurrentChallenge: function() {
+          if (this.currentChallengeIndex < this.currentChallenges.length) {
+            return this.currentChallenges[this.currentChallengeIndex];
+          }
+          return null;
+        },
+
+        // معالجة الإجابة
+        submitAnswer: function(challenge, selectedValue) {
+          if (this.isAnswering) return { success: false, reason: 'busy' };
+          this.isAnswering = true;
+
+          const isCorrect = (selectedValue === challenge.correct);
+          const word = challenge.word;
+
+          // تسجيل المحاولات للتكرار المتباعد
+          if (!this.state.wordAttempts[word.id]) {
+            this.state.wordAttempts[word.id] = { correct: 0, wrong: 0 };
+          }
+          if (isCorrect) {
+            this.state.wordAttempts[word.id].correct += 1;
+            // منح XP
+            const earnedXP = 10 + (this.state.streak > 0 ? 2 : 0);
+            this.state.xp += earnedXP;
+            this.state.dailyGoal += 1;
+            
+            // إذا أتقنها (أجاب صحيح 3 مرات)
+            if (this.state.wordAttempts[word.id].correct >= 3) {
+              if (!this.state.masteredWords.includes(word.id)) {
+                this.state.masteredWords.push(word.id);
+              }
+            }
+          } else {
+            this.state.wordAttempts[word.id].wrong += 1;
+            // ننقص XP قليلاً (لا يشعر بالإحباط)
+            this.state.xp = Math.max(0, this.state.xp - 2);
+            // إضافتها للضعيفة
+            if (!this.state.weakWords.includes(word.id)) {
+              this.state.weakWords.push(word.id);
+            }
+          }
+
+          // تحديث السلسلة اليومية
+          const today = new Date().toDateString();
+          if (this.state.lastDate !== today) {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            if (this.state.lastDate === yesterday.toDateString()) {
+              this.state.streak += 1;
+            } else {
+              this.state.streak = 1;
+            }
+            this.state.lastDate = today;
+          }
+
+          // تقدم المؤشر
+          this.state.currentWordIndex += 1;
+          saveState(this.state);
+          this.isAnswering = false;
+          
+          return {
+            success: true,
+            isCorrect: isCorrect,
+            earnedXP: isCorrect ? (10 + (this.state.streak > 0 ? 2 : 0)) : 0,
+            nextChallenge: this.getCurrentChallenge()
+          };
+        },
+
+        // التحقق من وجود تحديات متبقية
+        hasMoreChallenges: function() {
+          return this.currentChallengeIndex < this.currentChallenges.length;
+        },
+
+        // الانتقال إلى التحدي التالي
+        nextChallenge: function() {
+          this.currentChallengeIndex += 1;
+          return this.getCurrentChallenge();
+        },
+
+        // الحصول على إحصائيات الشاشة الرئيسية
+        getHomeStats: function() {
+          const levelData = window.APP_DATA[this.state.level];
+          const totalWords = levelData ? levelData.words.length : 0;
+          const masteredCount = this.state.masteredWords.length;
+          const progressPercent = totalWords > 0 ? Math.round((masteredCount / totalWords) * 100) : 0;
+          
+          // حساب XP المطلوب للمستوى التالي (تدرج بسيط)
+          const xpForNext = 100 + (this.state.xp / 10);
+          
+          return {
+            level: this.state.level,
+            xp: this.state.xp,
+            streak: this.state.streak,
+            dailyGoal: this.state.dailyGoal,
+            mastered: masteredCount,
+            total: totalWords,
+            progress: progressPercent,
+            weak: this.state.weakWords.slice(0, 5).map(id => {
+              const word = levelData?.words.find(w => w.id === id);
+              return word ? word.word : '?';
+            }),
+            xpForNext: Math.floor(xpForNext)
+          };
+        }
+      };
+
+      // =============================================
+      // 3. واجهة المستخدم (UI Renderer)
+      // =============================================
+      const UI = {
+        root: document.getElementById('screen-root'),
+
+        // عرض الشاشة الرئيسية (لوحة التحكم)
+        renderHome: function() {
+          const stats = Game.getHomeStats();
+          const levelLabel = window.APP_LEVEL_LABELS?.[stats.level] || stats.level;
+
+          this.root.innerHTML = `
+            <div class="home-container">
+              <!-- الشريط العلوي -->
+              <div class="top-bar">
+                <div class="level-badge">
+                  <span class="material-symbols-outlined">account_circle</span>
+                  <span>${stats.level}</span>
+                </div>
+                <div class="streak-badge">
+                  <span class="material-symbols-outlined">local_fire_department</span>
+                  <span>${stats.streak}</span>
+                </div>
+              </div>
+
+              <!-- شريط الخبرة -->
+              <div class="xp-container">
+                <div class="xp-label">
+                  <span>نقاط الخبرة (XP)</span>
+                  <span>${stats.xp}</span>
+                </div>
+                <div class="xp-bar-bg">
+                  <div class="xp-bar-fill" style="width: ${Math.min(100, (stats.xp / stats.xpForNext) * 100)}%;"></div>
+                </div>
+                <div class="xp-next">المستوى التالي: ${Math.floor(stats.xpForNext - stats.xp)} XP متبقية</div>
+              </div>
+
+              <!-- الهدف اليومي -->
+              <div class="daily-goal">
+                <span class="material-symbols-outlined">today</span>
+                <span>هدف اليوم: ${stats.dailyGoal} / 5 تحديات</span>
+                <div class="daily-bar-bg">
+                  <div class="daily-bar-fill" style="width: ${Math.min(100, (stats.dailyGoal / 5) * 100)}%;"></div>
+                </div>
+              </div>
+
+              <!-- زر الاستمرار الضخم -->
+              <button class="btn-continue" onclick="App.startChallenge()">
+                <span class="material-symbols-outlined">play_arrow</span>
+                واصل التعلم
+              </button>
+
+              <!-- المهارات الضعيفة -->
+              <div class="weak-section">
+                <div class="weak-header">
+                  <span class="material-symbols-outlined">warning</span>
+                  <span>كلمات تحتاج مراجعة</span>
+                </div>
+                <div class="weak-tags">
+                  ${stats.weak.length > 0 ? stats.weak.map(w => `<span class="tag">${w}</span>`).join('') : '<span style="color:#666;font-size:0.9rem;">ممتاز! لا توجد كلمات ضعيفة</span>'}
+                </div>
+              </div>
+
+              <!-- التقدم الكلي -->
+              <div class="progress-summary">
+                <div class="progress-circle" style="background: conic-gradient(#F5B041 ${stats.progress}%, #2A2A2A ${stats.progress}%);">
+                  <span>${stats.progress}%</span>
+                </div>
+                <div class="progress-text">
+                  <span>${stats.mastered} من ${stats.total} كلمة</span>
+                  <span>مستوى ${stats.level}</span>
+                </div>
+              </div>
             </div>
           `;
-        });
-        html += `</div></div>`;
-        root.innerHTML = html;
-      },
+        },
 
-      renderLevel: function(levelId) {
-        const root = document.getElementById("screen-root");
-        if (!root) return;
-        const level = Engine.getLevel(levelId);
-        if (!level) {
-          root.innerHTML = "<p>المستوى غير موجود</p>";
-          return;
+        // عرض شاشة التحدي
+        renderChallenge: function(challenge) {
+          if (!challenge) {
+            // لا مزيد من التحديات، نعرض شاشة الإنجاز
+            this.renderComplete();
+            return;
+          }
+
+          const word = challenge.word;
+          let questionHtml = '';
+          let optionsHtml = challenge.options.map(opt => `
+            <button class="option-btn" data-value="${opt}" onclick="App.handleAnswer('${opt.replace(/'/g, "\\'")}')">
+              ${opt}
+            </button>
+          `).join('');
+
+          if (challenge.type === 'translate') {
+            questionHtml = `
+              <div class="challenge-icon"><span class="material-symbols-outlined">translate</span></div>
+              <div class="question-text">ما هي ترجمة كلمة <strong>"${word.word}"</strong>؟</div>
+              <div class="audio-btn" onclick="App.speak('${word.word}')">
+                <span class="material-symbols-outlined">volume_up</span>
+              </div>
+            `;
+          } else if (challenge.type === 'fill') {
+            questionHtml = `
+              <div class="challenge-icon"><span class="material-symbols-outlined">text_fields</span></div>
+              <div class="question-text">أكمل الجملة: <strong>"${challenge.sentence}"</strong></div>
+            `;
+          }
+
+          this.root.innerHTML = `
+            <div class="challenge-container">
+              <div class="challenge-progress">
+                <span>التحدي ${Game.currentChallengeIndex + 1} من ${Game.currentChallenges.length}</span>
+                <span class="material-symbols-outlined" style="color:#F5B041;">stars</span>
+              </div>
+              <div class="question-card">
+                ${questionHtml}
+                <div class="options-grid">
+                  ${optionsHtml}
+                </div>
+              </div>
+              <div class="challenge-hint">
+                <span class="material-symbols-outlined">lightbulb</span>
+                <span>اختر الإجابة الصحيحة بسرعة</span>
+              </div>
+            </div>
+          `;
+
+          // إضافة تأثير الدخول
+          const card = this.root.querySelector('.question-card');
+          if (card) {
+            card.style.animation = 'none';
+            card.offsetHeight; // إعادة تدفق
+            card.style.animation = 'slideUp 0.3s ease forwards';
+          }
+        },
+
+        // شاشة الإنجاز (نهاية الجولة)
+        renderComplete: function() {
+          const stats = Game.getHomeStats();
+          this.root.innerHTML = `
+            <div class="complete-container">
+              <div class="complete-icon">
+                <span class="material-symbols-outlined" style="font-size:4rem;color:#F5B041;">emoji_events</span>
+              </div>
+              <h2>أحسنت!</h2>
+              <p>أكملت هذه الجولة بنجاح</p>
+              <div class="complete-stats">
+                <div><span>نقاط XP</span> <span>+${stats.dailyGoal * 2}</span></div>
+                <div><span>الكلمات المتقنة</span> <span>${stats.mastered}</span></div>
+              </div>
+              <button class="btn-continue" onclick="App.goHome()">
+                <span class="material-symbols-outlined">home</span>
+                العودة للرئيسية
+              </button>
+              <button class="btn-secondary" onclick="App.startChallenge()">
+                <span class="material-symbols-outlined">refresh</span>
+                جولة جديدة
+              </button>
+            </div>
+          `;
+        },
+
+        // عرض تغذية راجعة سريعة (صحيح/خطأ)
+        showFeedback: function(isCorrect, earnedXP) {
+          const feedback = document.createElement('div');
+          feedback.className = `feedback-popup ${isCorrect ? 'correct' : 'wrong'}`;
+          feedback.innerHTML = `
+            <span class="material-symbols-outlined">${isCorrect ? 'check_circle' : 'cancel'}</span>
+            <span>${isCorrect ? `صحيح! +${earnedXP} XP` : 'خطأ، حاول مجدداً'}</span>
+          `;
+          document.body.appendChild(feedback);
+          setTimeout(() => {
+            feedback.style.opacity = '0';
+            feedback.style.transform = 'translateY(-20px)';
+            setTimeout(() => feedback.remove(), 300);
+          }, 800);
         }
-        const labels = window.APP_LEVEL_LABELS || {};
-        let html = `
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-            <button onclick="App.navigateTo('home')" style="background:#333;border:none;color:white;padding:8px 16px;border-radius:30px;cursor:pointer;">العودة</button>
-            <h2 style="color:white;margin:0;">${labels[levelId] || levelId}</h2>
-          </div>
-          <div style="color:#AAAAAA;margin-bottom:16px;">${level.words.length} كلمة</div>
-          <div style="display:flex;flex-direction:column;gap:8px;">
-            <div onclick="App.navigateTo('content',{levelId:'${levelId}',sectionKey:'words',sectionLabel:'الكلمات'})" 
-                 style="background:#1E1E1E;padding:14px 16px;border-radius:12px;border:1px solid #2A2A2A;cursor:pointer;display:flex;justify-content:space-between;">
-              <span>📖 الكلمات</span>
-              <span style="color:#F5B041;">${level.words.length}</span>
-            </div>
-            <div onclick="App.navigateTo('content',{levelId:'${levelId}',sectionKey:'grammar',sectionLabel:'القواعد'})" 
-                 style="background:#1E1E1E;padding:14px 16px;border-radius:12px;border:1px solid #2A2A2A;cursor:pointer;display:flex;justify-content:space-between;">
-              <span>📐 القواعد</span>
-              <span style="color:#F5B041;">${level.grammar.length}</span>
-            </div>
-            <div onclick="App.navigateTo('content',{levelId:'${levelId}',sectionKey:'dialogues',sectionLabel:'الحوارات'})" 
-                 style="background:#1E1E1E;padding:14px 16px;border-radius:12px;border:1px solid #2A2A2A;cursor:pointer;display:flex;justify-content:space-between;">
-              <span>💬 الحوارات</span>
-              <span style="color:#F5B041;">${level.dialogues.length}</span>
-            </div>
-            <div onclick="App.navigateTo('content',{levelId:'${levelId}',sectionKey:'stories',sectionLabel:'القصص'})" 
-                 style="background:#1E1E1E;padding:14px 16px;border-radius:12px;border:1px solid #2A2A2A;cursor:pointer;display:flex;justify-content:space-between;">
-              <span>📚 القصص</span>
-              <span style="color:#F5B041;">${level.stories.length}</span>
-            </div>
-            <div onclick="App.navigateTo('quiz',{levelId:'${levelId}'})" 
-                 style="background:#F5B041;padding:14px 16px;border-radius:12px;cursor:pointer;display:flex;justify-content:center;color:#121212;font-weight:700;margin-top:10px;">
-              🧠 بدء الاختبار (${level.quizzes.length} سؤال)
-            </div>
-          </div>
-        `;
-        root.innerHTML = html;
-      },
+      };
 
-      renderContent: function(levelId, sectionKey, sectionLabel) {
-        const root = document.getElementById("screen-root");
-        if (!root) return;
-        const items = Engine.getLevel(levelId)?.[sectionKey] || [];
-        let html = `
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-            <button onclick="App.navigateTo('level',{levelId:'${levelId}'})" style="background:#333;border:none;color:white;padding:8px 16px;border-radius:30px;cursor:pointer;">العودة</button>
-            <h2 style="color:white;margin:0;">${sectionLabel}</h2>
-          </div>
-        `;
-        if (items.length === 0) {
-          html += `<p style="color:#888;">لا يوجد محتوى بعد</p>`;
-        } else {
-          items.forEach(function(item) {
-            if (sectionKey === "words") {
-              html += `<div style="background:#1E1E1E;padding:14px;border-radius:12px;margin-bottom:10px;border-right:3px solid #F5B041;">
-                <div style="color:#F5B041;font-weight:700;">${item.word}</div>
-                <div style="color:#AAAAAA;">${item.translation}</div>
-                <div style="color:#666;font-size:0.85rem;">${item.example || ''}</div>
-              </div>`;
-            } else {
-              html += `<div style="background:#1E1E1E;padding:14px;border-radius:12px;margin-bottom:10px;border-right:3px solid #F5B041;">
-                <div style="color:white;">${item.rule || item.dialogue || item.story || ''}</div>
-              </div>`;
+      // =============================================
+      // 4. التطبيق الرئيسي (App Controller)
+      // =============================================
+      window.App = {
+        // بدء أو متابعة التحديات
+        startChallenge: function() {
+          const level = Game.state.level;
+          // إذا لم تكن هناك كلمات محملة، نعيد تهيئة المستوى
+          if (Game.currentLevelWords.length === 0) {
+            Game.initLevel(level);
+          }
+          
+          // إذا انتهت التحديات أو لم تكن موجودة، نولد جديدة
+          if (!Game.hasMoreChallenges() || Game.currentChallenges.length === 0) {
+            Game.generateChallenges();
+          }
+
+          const challenge = Game.getCurrentChallenge();
+          if (challenge) {
+            UI.renderChallenge(challenge);
+          } else {
+            // إذا لم يكن هناك تحديات، نعرض شاشة الإنجاز
+            UI.renderComplete();
+          }
+        },
+
+        // معالجة اختيار الإجابة
+        handleAnswer: function(selected) {
+          if (Game.isAnswering) return;
+          
+          const challenge = Game.getCurrentChallenge();
+          if (!challenge) return;
+
+          // تعطيل الأزرار مؤقتاً
+          const btns = document.querySelectorAll('.option-btn');
+          btns.forEach(b => b.disabled = true);
+
+          const result = Game.submitAnswer(challenge, selected);
+          
+          // عرض التغذية الراجعة
+          UI.showFeedback(result.isCorrect, result.earnedXP);
+
+          // تمييز الزر الصحيح/الخاطئ
+          btns.forEach(btn => {
+            if (btn.dataset.value === challenge.correct) {
+              btn.style.borderColor = '#4CAF50';
+              btn.style.background = 'rgba(76, 175, 80, 0.2)';
+            } else if (btn.dataset.value === selected && !result.isCorrect) {
+              btn.style.borderColor = '#F44336';
+              btn.style.background = 'rgba(244, 67, 54, 0.2)';
             }
           });
-        }
-        root.innerHTML = html;
-      },
 
-      renderLevelQuiz: function(levelId) {
-        const root = document.getElementById("screen-root");
-        if (!root) return;
-        const quizzes = Engine.getQuizzes(levelId);
-        if (quizzes.length === 0) {
-          root.innerHTML = `<button onclick="App.navigateTo('level',{levelId:'${levelId}'})" style="background:#333;border:none;color:white;padding:8px 16px;border-radius:30px;cursor:pointer;">العودة</button><p>لا توجد أسئلة</p>`;
-          return;
-        }
+          // الانتقال إلى التالي بعد تأخير
+          setTimeout(() => {
+            const next = Game.nextChallenge();
+            if (next) {
+              UI.renderChallenge(next);
+            } else {
+              UI.renderComplete();
+            }
+          }, 1200);
+        },
 
-        let html = `
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-            <button onclick="App.navigateTo('level',{levelId:'${levelId}'})" style="background:#333;border:none;color:white;padding:8px 16px;border-radius:30px;cursor:pointer;">العودة</button>
-            <h2 style="color:white;margin:0;">اختبار ${levelId}</h2>
-          </div>
-          <div id="quizContainer"></div>
-          <button onclick="submitQuiz('${levelId}')" style="background:#F5B041;border:none;padding:14px;border-radius:30px;width:100%;font-weight:700;color:#121212;cursor:pointer;margin-top:16px;">تأكيد الإجابات</button>
-        `;
-        root.innerHTML = html;
-
-        const container = document.getElementById("quizContainer");
-        if (!container) return;
-        window._userAnswers = {};
-        quizzes.forEach(function(q, index) {
-          const qId = 'q' + index;
-          let optionsHtml = '';
-          q.options.forEach(function(opt) {
-            optionsHtml += `<button onclick="selectOption('${qId}','${opt}')" id="${qId}_${opt}" style="display:block;width:100%;background:#2A2A2A;border:1px solid #333;color:white;padding:12px;border-radius:30px;margin-bottom:6px;cursor:pointer;text-align:center;">${opt}</button>`;
-          });
-          container.innerHTML += `
-            <div style="background:#1E1E1E;padding:16px;border-radius:12px;margin-bottom:12px;border:1px solid #2A2A2A;">
-              <div style="font-weight:600;margin-bottom:10px;">${index+1}. ${q.question}</div>
-              ${optionsHtml}
-              <input type="hidden" id="answer_${qId}" value="">
-            </div>
-          `;
-        });
-
-        window._quizData = quizzes;
-        window._levelId = levelId;
-      },
-
-      renderResult: function(levelId, result) {
-        const root = document.getElementById("screen-root");
-        if (!root) return;
-        root.innerHTML = `
-          <div style="text-align:center;padding:30px 0;">
-            <div style="font-size:3rem;color:#F5B041;">${result.percentage}%</div>
-            <div style="color:#AAAAAA;">${result.correct} من ${result.total} إجابات صحيحة</div>
-            <div style="color:${result.passed ? '#4CAF50' : '#F44336'};font-weight:700;margin:12px 0;">${result.passed ? '✔ ناجح' : '✖ أعد المحاولة'}</div>
-            <button onclick="App.navigateTo('level',{levelId:'${levelId}'})" style="background:#F5B041;border:none;padding:14px;border-radius:30px;width:100%;font-weight:700;color:#121212;cursor:pointer;">العودة للمستوى</button>
-          </div>
-        `;
-      }
-    };
-
-    // ===== APP (المدير الرئيسي) =====
-    const App = {
-      navigateTo: function(screen, params) {
-        try {
-          switch(screen) {
-            case "home": UI.renderHome(); break;
-            case "level": if (params && params.levelId) UI.renderLevel(params.levelId); break;
-            case "content": if (params && params.levelId && params.sectionKey) UI.renderContent(params.levelId, params.sectionKey, params.sectionLabel || ""); break;
-            case "quiz": if (params && params.levelId) UI.renderLevelQuiz(params.levelId); break;
-            default: UI.renderHome();
+        // النطق باستخدام Web Speech API
+        speak: function(text) {
+          if ('speechSynthesis' in window) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US';
+            utterance.rate = 0.9;
+            speechSynthesis.speak(utterance);
+          } else {
+            alert('متصفحك لا يدعم النطق الصوتي');
           }
-        } catch(e) {
-          document.getElementById("screen-root").innerHTML = `<p style="color:#F44336;">خطأ: ${e.message}</p><button onclick="App.navigateTo('home')" style="background:#333;border:none;color:white;padding:8px 16px;border-radius:30px;cursor:pointer;">الرئيسية</button>`;
+        },
+
+        // العودة للشاشة الرئيسية
+        goHome: function() {
+          UI.renderHome();
+        },
+
+        // تشغيل التطبيق
+        init: function() {
+          if (!window.APP_DATA) {
+            this.root.innerHTML = `<div style="padding:40px;color:red;text-align:center;">خطأ: ملف data.js غير موجود أو تالف</div>`;
+            return;
+          }
+
+          // التأكد من تحميل المستوى الحالي
+          const level = Game.state.level;
+          if (!window.APP_DATA[level]) {
+            // إذا كان المستوى غير موجود، نختار أول مستوى
+            const firstLevel = window.APP_LEVELS?.[0] || 'A1';
+            Game.state.level = firstLevel;
+            saveState(Game.state);
+          }
+          
+          Game.initLevel(Game.state.level);
+          UI.renderHome();
         }
-      }
-    };
+      };
 
-    // ===== دوال مساعدة للاختبار =====
-    window.selectOption = function(qId, value) {
-      document.querySelectorAll('[id^="' + qId + '_"]').forEach(function(el) {
-        el.style.borderColor = '#333';
-        el.style.background = '#2A2A2A';
+      // =============================================
+      // 5. بدء التشغيل
+      // =============================================
+      document.addEventListener('DOMContentLoaded', function() {
+        window.App.init();
       });
-      document.getElementById(qId + '_' + value).style.borderColor = '#F5B041';
-      document.getElementById(qId + '_' + value).style.background = '#332811';
-      document.getElementById('answer_' + qId).value = value;
-      window._userAnswers[qId] = value;
-    };
 
-    window.submitQuiz = function(levelId) {
-      const quizzes = window._quizData || [];
-      const userAnswers = [];
-      quizzes.forEach(function(q, i) {
-        const qId = 'q' + i;
-        userAnswers.push(document.getElementById('answer_' + qId).value || '');
-      });
-      const result = Engine.evaluateLevelQuiz(levelId, userAnswers);
-      Engine.recordQuizResult(levelId, result);
-      UI.renderResult(levelId, result);
-    };
-
-    // ===== بدء التطبيق =====
-    document.addEventListener("DOMContentLoaded", function() {
-      if (window.APP_DATA && typeof window.APP_DATA === "object") {
-        App.navigateTo("home");
-      } else {
-        document.getElementById("screen-root").innerHTML = "<p style='color:#F44336;text-align:center;padding:40px;'>خطأ: بيانات التطبيق غير محمّلة.<br>تأكد من وجود ملف data.js في نفس المجلد.</p>";
-      }
-    });
+    })();
   </script>
+
 </body>
 </html>
